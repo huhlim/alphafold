@@ -94,10 +94,12 @@ class DataPipeline:
                pdb70_database_path: str,
                template_featurizer: templates.TemplateHitFeaturizer,
                use_small_bfd: bool,
+               use_msa: bool,
                mgnify_max_hits: int = 501,
                uniref_max_hits: int = 10000):
     """Constructs a feature dict for a given FASTA file."""
     self._use_small_bfd = use_small_bfd
+    self._use_msa = use_msa
     self.jackhmmer_uniref90_runner = jackhmmer.Jackhmmer(
         binary_path=jackhmmer_binary_path,
         database_path=uniref90_database_path)
@@ -119,7 +121,7 @@ class DataPipeline:
     self.mgnify_max_hits = mgnify_max_hits
     self.uniref_max_hits = uniref_max_hits
 
-  def process(self, input_fasta_path: str, msa_output_dir: str) -> FeatureDict:
+  def process(self, input_fasta_path: str, input_msa_path: str, msa_output_dir: str) -> FeatureDict:
     """Runs alignment tools on the input sequence and creates features."""
     with open(input_fasta_path) as f:
       input_fasta_str = f.read()
@@ -131,67 +133,112 @@ class DataPipeline:
     input_description = input_descs[0]
     num_res = len(input_sequence)
 
-    jackhmmer_uniref90_result = self.jackhmmer_uniref90_runner.query(
-        input_fasta_path)[0]
-    jackhmmer_mgnify_result = self.jackhmmer_mgnify_runner.query(
-        input_fasta_path)[0]
-
-    uniref90_msa_as_a3m = parsers.convert_stockholm_to_a3m(
-        jackhmmer_uniref90_result['sto'], max_sequences=self.uniref_max_hits)
-    hhsearch_result = self.hhsearch_pdb70_runner.query(uniref90_msa_as_a3m)
-
-    uniref90_out_path = os.path.join(msa_output_dir, 'uniref90_hits.sto')
-    with open(uniref90_out_path, 'w') as f:
-      f.write(jackhmmer_uniref90_result['sto'])
-
-    mgnify_out_path = os.path.join(msa_output_dir, 'mgnify_hits.sto')
-    with open(mgnify_out_path, 'w') as f:
-      f.write(jackhmmer_mgnify_result['sto'])
-
-    uniref90_msa, uniref90_deletion_matrix, _ = parsers.parse_stockholm(
-        jackhmmer_uniref90_result['sto'])
-    mgnify_msa, mgnify_deletion_matrix, _ = parsers.parse_stockholm(
-        jackhmmer_mgnify_result['sto'])
-    hhsearch_hits = parsers.parse_hhr(hhsearch_result)
-    mgnify_msa = mgnify_msa[:self.mgnify_max_hits]
-    mgnify_deletion_matrix = mgnify_deletion_matrix[:self.mgnify_max_hits]
-
-    if self._use_small_bfd:
-      jackhmmer_small_bfd_result = self.jackhmmer_small_bfd_runner.query(
+    if self._use_msa and (input_msa_path is None):
+      jackhmmer_uniref90_result = self.jackhmmer_uniref90_runner.query(
+          input_fasta_path)[0]
+      jackhmmer_mgnify_result = self.jackhmmer_mgnify_runner.query(
           input_fasta_path)[0]
 
-      bfd_out_path = os.path.join(msa_output_dir, 'small_bfd_hits.a3m')
-      with open(bfd_out_path, 'w') as f:
-        f.write(jackhmmer_small_bfd_result['sto'])
+      uniref90_msa_as_a3m = parsers.convert_stockholm_to_a3m(
+          jackhmmer_uniref90_result['sto'], max_sequences=self.uniref_max_hits)
+      hhsearch_result = self.hhsearch_pdb70_runner.query(uniref90_msa_as_a3m)
 
-      bfd_msa, bfd_deletion_matrix, _ = parsers.parse_stockholm(
-          jackhmmer_small_bfd_result['sto'])
+      uniref90_out_path = os.path.join(msa_output_dir, 'uniref90_hits.sto')
+      with open(uniref90_out_path, 'w') as f:
+        f.write(jackhmmer_uniref90_result['sto'])
+
+      mgnify_out_path = os.path.join(msa_output_dir, 'mgnify_hits.sto')
+      with open(mgnify_out_path, 'w') as f:
+        f.write(jackhmmer_mgnify_result['sto'])
+
+      uniref90_msa, uniref90_deletion_matrix, _ = parsers.parse_stockholm(
+          jackhmmer_uniref90_result['sto'])
+      mgnify_msa, mgnify_deletion_matrix, _ = parsers.parse_stockholm(
+          jackhmmer_mgnify_result['sto'])
+      hhsearch_hits = parsers.parse_hhr(hhsearch_result)
+      mgnify_msa = mgnify_msa[:self.mgnify_max_hits]
+      mgnify_deletion_matrix = mgnify_deletion_matrix[:self.mgnify_max_hits]
+
+      if self._use_small_bfd:
+        jackhmmer_small_bfd_result = self.jackhmmer_small_bfd_runner.query(
+            input_fasta_path)[0]
+
+        bfd_out_path = os.path.join(msa_output_dir, 'small_bfd_hits.a3m')
+        with open(bfd_out_path, 'w') as f:
+          f.write(jackhmmer_small_bfd_result['sto'])
+
+        bfd_msa, bfd_deletion_matrix, _ = parsers.parse_stockholm(
+            jackhmmer_small_bfd_result['sto'])
+      else:
+        hhblits_bfd_uniclust_result = self.hhblits_bfd_uniclust_runner.query(
+            input_fasta_path)
+
+        bfd_out_path = os.path.join(msa_output_dir, 'bfd_uniclust_hits.a3m')
+        with open(bfd_out_path, 'w') as f:
+          f.write(hhblits_bfd_uniclust_result['a3m'])
+
+        bfd_msa, bfd_deletion_matrix = parsers.parse_a3m(
+            hhblits_bfd_uniclust_result['a3m'])
+    elif self.template_featurizer is not None:
+      if input_msa_path is None:
+        jackhmmer_uniref90_result = self.jackhmmer_uniref90_runner.query(
+            input_fasta_path)[0]
+        uniref90_msa_as_a3m = parsers.convert_stockholm_to_a3m(
+            jackhmmer_uniref90_result['sto'], max_sequences=self.uniref_max_hits)
+        input_msa_a3m = uniref90_msa_as_a3m
+      else:
+        with open(input_msa_path) as f:
+          input_msa_a3m = f.read()
+      #
+      hhsearch_result = self.hhsearch_pdb70_runner.query(input_msa_a3m)
+      hhsearch_hits = parsers.parse_hhr(hhsearch_result)
+
+    if self.template_featurizer is not None:
+      templates_result = self.template_featurizer.get_templates(
+          query_sequence=input_sequence,
+          query_pdb_code=None,
+          query_release_date=None,
+          hits=hhsearch_hits)
+      templates_features = templates_result.features
     else:
-      hhblits_bfd_uniclust_result = self.hhblits_bfd_uniclust_runner.query(
-          input_fasta_path)
+      num_templates_ = 0
+      #
+      templates_features = {}
+      templates_features['template_aatype'] = \
+              np.zeros([num_templates_, num_res, 22], np.float32)
+      templates_features['template_all_atom_masks'] = \
+              np.zeros([num_templates_, num_res, 37, 3], np.float32)
+      templates_features['template_all_atom_positions'] = \
+              np.zeros([num_templates_, num_res, 37], np.float32)
+      templates_features['template_domain_names'] = \
+              np.zeros([num_templates_], np.float32)
+      templates_features['template_sum_probs'] = \
+              np.zeros([num_templates_], np.float32)
 
-      bfd_out_path = os.path.join(msa_output_dir, 'bfd_uniclust_hits.a3m')
-      with open(bfd_out_path, 'w') as f:
-        f.write(hhblits_bfd_uniclust_result['a3m'])
-
-      bfd_msa, bfd_deletion_matrix = parsers.parse_a3m(
-          hhblits_bfd_uniclust_result['a3m'])
-
-    templates_result = self.template_featurizer.get_templates(
-        query_sequence=input_sequence,
-        query_pdb_code=None,
-        query_release_date=None,
-        hits=hhsearch_hits)
 
     sequence_features = make_sequence_features(
         sequence=input_sequence,
         description=input_description,
         num_res=num_res)
 
-    msa_features = make_msa_features(
-        msas=(uniref90_msa, bfd_msa, mgnify_msa),
-        deletion_matrices=(uniref90_deletion_matrix,
-                           bfd_deletion_matrix,
-                           mgnify_deletion_matrix))
+    if self._use_msa:
+      if input_msa_path is None:
+        msa_features = make_msa_features(
+            msas=(uniref90_msa, bfd_msa, mgnify_msa),
+            deletion_matrices=(uniref90_deletion_matrix,
+                               bfd_deletion_matrix,
+                               mgnify_deletion_matrix))
+      else:
+        with open(input_msa_path) as f:
+          a3m = f.read()
+        input_msa, input_deletion_matrix = parsers.parse_a3m(a3m)
+        msa_features = make_msa_features(msas=(input_msa,), \
+                deletion_matrices=(input_deletion_matrix,))
+    else:
+      with open(input_fasta_path) as f:
+        a3m = f.read()
+      seq_msa, seq_deletion_matrix = parsers.parse_a3m(a3m)
+      msa_features = make_msa_features(msas=(seq_msa,), \
+              deletion_matrices=(seq_deletion_matrix,))
 
-    return {**sequence_features, **msa_features, **templates_result.features}
+    return {**sequence_features, **msa_features, **templates_features}

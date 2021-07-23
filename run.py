@@ -66,6 +66,9 @@ flags.DEFINE_string('mgnify_database_path', libconfig_alphafold.mgnify_database_
 flags.DEFINE_string('bfd_database_path', libconfig_alphafold.bfd_database_path,
                     'Path to the BFD '
                     'database for use by HHblits.')
+flags.DEFINE_string('small_bfd_database_path', libconfig_alphafold.small_bfd_database_path, \
+                    'Path to the small '
+                    'version of BFD used with the "reduced_dbs" preset.')
 flags.DEFINE_string('uniclust30_database_path', libconfig_alphafold.uniclust30_database_path,
                     'Path to the Uniclust30 '
                     'database for use by HHblits.')
@@ -82,9 +85,16 @@ flags.DEFINE_string('obsolete_pdbs_path', libconfig_alphafold.obsolete_pdbs_path
                     'Path to file containing a '
                     'mapping from obsolete PDB IDs to the PDB IDs of their '
                     'replacements.')
-flags.DEFINE_enum('preset', 'full_dbs', ['full_dbs', 'casp14'],
-                  'Choose preset model configuration - no ensembling '
-                  '(full_dbs) or 8 model ensemblings (casp14).')
+flags.DEFINE_boolean("use_templates", True, "Wheter to use PDB database")
+flags.DEFINE_boolean("use_msa", True, "Wheter to use MSA")
+flags.DEFINE_list("msa_paths", None, "User input MSA")
+flags.DEFINE_enum('preset', 'full_dbs',
+                  ['reduced_dbs', 'full_dbs', 'casp14'],
+                  'Choose preset model configuration - no ensembling and '
+                  'smaller genetic database config (reduced_dbs), no '
+                  'ensembling and full genetic database config  (full_dbs) or '
+                  'full genetic database config and 8 model ensemblings '
+                  '(casp14).')
 flags.DEFINE_boolean('benchmark', False, 'Run multiple JAX model evaluations '
                      'to obtain a timing that excludes the compilation time, '
                      'which should be more indicative of the time required for '
@@ -103,10 +113,15 @@ RELAX_STIFFNESS = 10.0
 RELAX_EXCLUDE_RESIDUES = []
 RELAX_MAX_OUTER_ITERATIONS = 20
 
+def _check_flag(flag_name: str, preset: str, should_be_set: bool):
+  if should_be_set != bool(FLAGS[flag_name].value):
+    verb = 'be' if should_be_set else 'not be'
+    raise ValueError(f'{flag_name} must {verb} set for preset "{preset}"')
 
 def predict_structure(
     fasta_path: str,
     fasta_name: str,
+    msa_path: str,
     output_dir_base: str,
     data_pipeline: pipeline.DataPipeline,
     model_runners: Dict[str, model.RunModel],
@@ -124,21 +139,29 @@ def predict_structure(
 
   # Get features.
   t_0 = time.time()
-  feature_dict = data_pipeline.process(
-      input_fasta_path=fasta_path,
-      msa_output_dir=msa_output_dir)
-  timings['features'] = time.time() - t_0
-
-  # Write out features as a pickled dictionary.
   features_output_path = os.path.join(output_dir, 'features.pkl')
-  with open(features_output_path, 'wb') as f:
-    pickle.dump(feature_dict, f, protocol=4)
+  if os.path.exists(features_output_path):
+      with open(features_output_path, 'rb') as f:
+        feature_dict = pickle.load(f)
+      timings['features'] = time.time() - t_0
+  else:
+      feature_dict = data_pipeline.process(
+          input_fasta_path=fasta_path,
+          input_msa_path=msa_path,
+          msa_output_dir=msa_output_dir)
+      timings['features'] = time.time() - t_0
+
+      # Write out features as a pickled dictionary.
+      with open(features_output_path, 'wb') as f:
+        pickle.dump(feature_dict, f, protocol=4)
 
   relaxed_pdbs = {}
   plddts = {}
 
   # Run the models.
   for model_name, model_runner in model_runners.items():
+    #if model_name in ['model_1']:
+    #  continue
     logging.info('Running model %s', model_name)
     t_0 = time.time()
     processed_feature_dict = model_runner.process_features(
@@ -209,7 +232,20 @@ def main(argv):
   if len(argv) > 1:
     raise app.UsageError('Too many command-line arguments.')
 
-  if FLAGS.preset == 'full_dbs':
+  use_small_bfd = FLAGS.preset == 'reduced_dbs'
+  if use_small_bfd:
+      FLAGS.bfd_database_path = None
+      FLAGS.uniclust30_database_path = None
+  else:
+      FLAGS.small_bfd_database_path = None
+  _check_flag('small_bfd_database_path', FLAGS.preset,
+              should_be_set=use_small_bfd)
+  _check_flag('bfd_database_path', FLAGS.preset,
+              should_be_set=not use_small_bfd)
+  _check_flag('uniclust30_database_path', FLAGS.preset,
+              should_be_set=not use_small_bfd)
+
+  if FLAGS.preset in ('reduced_dbs', 'full_dbs'):
     num_ensemble = 1
   elif FLAGS.preset == 'casp14':
     num_ensemble = 8
@@ -218,14 +254,21 @@ def main(argv):
   fasta_names = [pathlib.Path(p).stem for p in FLAGS.fasta_paths]
   if len(fasta_names) != len(set(fasta_names)):
     raise ValueError('All FASTA paths must have a unique basename.')
+  if FLAGS.msa_paths is not None and len(FLAGS.msa_paths) != len(fasta_names):
+    raise ValueError('Number of MSAs are different.')
+  elif FLAGS.msa_paths is None:
+    FLAGS.msa_paths = [None for _ in FLAGS.fasta_paths]
 
-  template_featurizer = templates.TemplateHitFeaturizer(
-      mmcif_dir=FLAGS.template_mmcif_dir,
-      max_template_date=FLAGS.max_template_date,
-      max_hits=MAX_TEMPLATE_HITS,
-      kalign_binary_path=FLAGS.kalign_binary_path,
-      release_dates_path=None,
-      obsolete_pdbs_path=FLAGS.obsolete_pdbs_path)
+  if FLAGS.use_templates:
+    template_featurizer = templates.TemplateHitFeaturizer(
+        mmcif_dir=FLAGS.template_mmcif_dir,
+        max_template_date=FLAGS.max_template_date,
+        max_hits=MAX_TEMPLATE_HITS,
+        kalign_binary_path=FLAGS.kalign_binary_path,
+        release_dates_path=None,
+        obsolete_pdbs_path=FLAGS.obsolete_pdbs_path)
+  else:
+    template_featurizer = None
 
   data_pipeline = pipeline.DataPipeline(
       jackhmmer_binary_path=FLAGS.jackhmmer_binary_path,
@@ -235,8 +278,12 @@ def main(argv):
       mgnify_database_path=FLAGS.mgnify_database_path,
       bfd_database_path=FLAGS.bfd_database_path,
       uniclust30_database_path=FLAGS.uniclust30_database_path,
+      small_bfd_database_path=FLAGS.small_bfd_database_path,
       pdb70_database_path=FLAGS.pdb70_database_path,
-      template_featurizer=template_featurizer)
+      template_featurizer=template_featurizer,
+      use_small_bfd=use_small_bfd,
+      use_msa=FLAGS.use_msa,
+      )
 
   model_runners = {}
   for model_name in FLAGS.model_names:
@@ -263,10 +310,11 @@ def main(argv):
   logging.info('Using random seed %d for the data pipeline', random_seed)
 
   # Predict structure for each of the sequences.
-  for fasta_path, fasta_name in zip(FLAGS.fasta_paths, fasta_names):
+  for fasta_path, fasta_name, msa_path in zip(FLAGS.fasta_paths, fasta_names, FLAGS.msa_paths):
     predict_structure(
         fasta_path=fasta_path,
         fasta_name=fasta_name,
+        msa_path=msa_path,
         output_dir_base=FLAGS.output_dir,
         data_pipeline=data_pipeline,
         model_runners=model_runners,
