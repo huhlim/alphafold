@@ -78,6 +78,13 @@ def make_msa_features(
       [num_alignments] * num_res, dtype=np.int32)
   return features
 
+def split_chain(num_res_per_chain, sequence_features):
+  PARAM_CHAIN_BREAK = 100
+  #
+  L_prev = 0
+  for L in num_res_per_chain[:-1]:
+    sequence_features['residue_index'][L_prev+L:] += PARAM_CHAIN_BREAK
+    L_prev += L
 
 class DataPipeline:
   """Runs the alignment tools and assembles the input features."""
@@ -95,11 +102,13 @@ class DataPipeline:
                template_featurizer: templates.TemplateHitFeaturizer,
                use_small_bfd: bool,
                use_msa: bool,
+               is_oligomer: bool,
                mgnify_max_hits: int = 501,
                uniref_max_hits: int = 10000):
     """Constructs a feature dict for a given FASTA file."""
     self._use_small_bfd = use_small_bfd
     self._use_msa = use_msa
+    self._is_oligomer = is_oligomer
     self.jackhmmer_uniref90_runner = jackhmmer.Jackhmmer(
         binary_path=jackhmmer_binary_path,
         database_path=uniref90_database_path)
@@ -127,11 +136,19 @@ class DataPipeline:
       input_fasta_str = f.read()
     input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
     if len(input_seqs) != 1:
-      raise ValueError(
-          f'More than one input sequence found in {input_fasta_path}.')
-    input_sequence = input_seqs[0]
-    input_description = input_descs[0]
-    num_res = len(input_sequence)
+      if not self._is_oligomer:
+        raise ValueError(
+            f'More than one input sequence found in {input_fasta_path}.')
+      else:
+        input_sequence = ''.join(input_seqs)
+        input_description = ''.join(input_descs)
+        num_res = len(input_sequence)
+        num_res_per_chain = [len(seq) for seq in input_seqs]
+    else:
+      input_sequence = input_seqs[0]
+      input_description = input_descs[0]
+      num_res = len(input_sequence)
+      num_res_per_chain = [num_res]
 
     if self._use_msa and (input_msa_path is None):
       jackhmmer_uniref90_result = self.jackhmmer_uniref90_runner.query(
@@ -240,5 +257,8 @@ class DataPipeline:
       seq_msa, seq_deletion_matrix = parsers.parse_a3m(a3m)
       msa_features = make_msa_features(msas=(seq_msa,), \
               deletion_matrices=(seq_deletion_matrix,))
+
+    if self._is_oligomer and len(num_res_per_chain) > 1:
+      split_chain(num_res_per_chain, sequence_features)
 
     return {**sequence_features, **msa_features, **templates_features}

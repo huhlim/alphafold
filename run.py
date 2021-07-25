@@ -85,9 +85,11 @@ flags.DEFINE_string('obsolete_pdbs_path', libconfig_alphafold.obsolete_pdbs_path
                     'Path to file containing a '
                     'mapping from obsolete PDB IDs to the PDB IDs of their '
                     'replacements.')
+flags.DEFINE_boolean("use_relax", True, "Wheter to use AMBER local energy minimization")
 flags.DEFINE_boolean("use_templates", True, "Wheter to use PDB database")
 flags.DEFINE_boolean("use_msa", True, "Wheter to use MSA")
 flags.DEFINE_list("msa_paths", None, "User input MSA")
+flags.DEFINE_boolean("oligomer", False, "Whether to predict as an oligomer")
 flags.DEFINE_enum('preset', 'full_dbs',
                   ['reduced_dbs', 'full_dbs', 'casp14'],
                   'Choose preset model configuration - no ensembling and '
@@ -199,7 +201,10 @@ def predict_structure(
 
     # Relax the prediction.
     t_0 = time.time()
-    relaxed_pdb_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein)
+    if amber_relaxer is not None:
+      relaxed_pdb_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein)
+    else:
+      relaxed_pdb_str = protein.to_pdb(unrelaxed_protein)
     timings[f'relax_{model_name}'] = time.time() - t_0
 
     relaxed_pdbs[model_name] = relaxed_pdb_str
@@ -251,6 +256,13 @@ def main(argv):
   elif FLAGS.preset == 'casp14':
     num_ensemble = 8
 
+  if FLAGS.oligomer:
+    FLAGS.use_templates = False
+    FLAGS.use_relax = False
+  else:
+    if FLAGS.msa_paths is None:
+      raise ValueError("Oligomer mode requires an MSA input")
+
   # Check for duplicate FASTA file names.
   fasta_names = [pathlib.Path(p).stem for p in FLAGS.fasta_paths]
   if len(fasta_names) != len(set(fasta_names)):
@@ -284,6 +296,7 @@ def main(argv):
       template_featurizer=template_featurizer,
       use_small_bfd=use_small_bfd,
       use_msa=FLAGS.use_msa,
+      is_oligomer=FLAGS.oligomer,
       )
 
   model_runners = {}
@@ -298,12 +311,15 @@ def main(argv):
   logging.info('Have %d models: %s', len(model_runners),
                list(model_runners.keys()))
 
-  amber_relaxer = relax.AmberRelaxation(
-      max_iterations=RELAX_MAX_ITERATIONS,
-      tolerance=RELAX_ENERGY_TOLERANCE,
-      stiffness=RELAX_STIFFNESS,
-      exclude_residues=RELAX_EXCLUDE_RESIDUES,
-      max_outer_iterations=RELAX_MAX_OUTER_ITERATIONS)
+  if FLAGS.use_relax:
+    amber_relaxer = relax.AmberRelaxation(
+        max_iterations=RELAX_MAX_ITERATIONS,
+        tolerance=RELAX_ENERGY_TOLERANCE,
+        stiffness=RELAX_STIFFNESS,
+        exclude_residues=RELAX_EXCLUDE_RESIDUES,
+        max_outer_iterations=RELAX_MAX_OUTER_ITERATIONS)
+  else:
+    amber_relaxer = None
 
   random_seed = FLAGS.random_seed
   if random_seed is None:
