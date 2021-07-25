@@ -95,6 +95,7 @@ flags.DEFINE_enum('preset', 'full_dbs',
                   'ensembling and full genetic database config  (full_dbs) or '
                   'full genetic database config and 8 model ensemblings '
                   '(casp14).')
+flags.DEFINE_boolean('jit', False, 'compile using jax.jit')
 flags.DEFINE_boolean('benchmark', False, 'Run multiple JAX model evaluations '
                      'to obtain a timing that excludes the compilation time, '
                      'which should be more indicative of the time required for '
@@ -291,7 +292,7 @@ def main(argv):
     model_config.data.eval.num_ensemble = num_ensemble
     model_params = data.get_model_haiku_params(
         model_name=model_name, data_dir=FLAGS.data_dir)
-    model_runner = model.RunModel(model_config, model_params)
+    model_runner = model.RunModel(model_config, model_params, FLAGS.jit)
     model_runners[model_name] = model_runner
 
   logging.info('Have %d models: %s', len(model_runners),

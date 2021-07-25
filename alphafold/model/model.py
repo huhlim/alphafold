@@ -51,7 +51,9 @@ class RunModel:
 
   def __init__(self,
                config: ml_collections.ConfigDict,
-               params: Optional[Mapping[str, Mapping[str, np.ndarray]]] = None):
+               params: Optional[Mapping[str, Mapping[str, np.ndarray]]] = None,
+               jit_compile=False
+               ):
     self.config = config
     self.params = params
 
@@ -63,7 +65,10 @@ class RunModel:
           compute_loss=False,
           ensemble_representations=True)
 
-    self.apply = jax.jit(hk.transform(_forward_fn).apply)
+    if jit_compile:
+        self.apply = jax.jit(hk.transform(_forward_fn).apply)
+    else:
+        self.apply = hk.transform(_forward_fn).apply
     self.init = jax.jit(hk.transform(_forward_fn).init)
 
   def init_params(self, feat: features.FeatureDict, random_seed: int = 0):
