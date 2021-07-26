@@ -39,7 +39,7 @@ from alphafold.relax import relax
 
 import libconfig_alphafold
 
-flags.DEFINE_list('fasta_paths', None, 'Paths to FASTA files, each containing '
+flags.DEFINE_string('fasta_path', None, 'Paths to FASTA files, each containing '
                   'one sequence. Paths should be separated by commas. '
                   'All FASTA paths must have a unique basename as the '
                   'basename is used to name the output directories for '
@@ -88,7 +88,8 @@ flags.DEFINE_string('obsolete_pdbs_path', libconfig_alphafold.obsolete_pdbs_path
 flags.DEFINE_boolean("use_relax", True, "Wheter to use AMBER local energy minimization")
 flags.DEFINE_boolean("use_templates", True, "Wheter to use PDB database")
 flags.DEFINE_boolean("use_msa", True, "Wheter to use MSA")
-flags.DEFINE_list("msa_paths", None, "User input MSA")
+flags.DEFINE_string("msa_path", None, "User input MSA")
+flags.DEFINE_string("custom_templates", None, "User input templates")
 flags.DEFINE_boolean("oligomer", False, "Whether to predict as an oligomer")
 flags.DEFINE_enum('preset', 'full_dbs',
                   ['reduced_dbs', 'full_dbs', 'casp14'],
@@ -258,19 +259,15 @@ def main(argv):
 
   if FLAGS.oligomer:
     FLAGS.use_templates = False
-    FLAGS.use_relax = False
   else:
-    if FLAGS.msa_paths is None:
+    if FLAGS.msa_path is None:
       raise ValueError("Oligomer mode requires an MSA input")
+  if FLAGS.custom_templates is not None:
+    FLAGS.template_mmcif_dir = FLAGS.custom_templates
+    FLAGS.pdb70_database_path = "%s/pdb70"%FLAGS.custom_templates
 
   # Check for duplicate FASTA file names.
-  fasta_names = [pathlib.Path(p).stem for p in FLAGS.fasta_paths]
-  if len(fasta_names) != len(set(fasta_names)):
-    raise ValueError('All FASTA paths must have a unique basename.')
-  if FLAGS.msa_paths is not None and len(FLAGS.msa_paths) != len(fasta_names):
-    raise ValueError('Number of MSAs are different.')
-  elif FLAGS.msa_paths is None:
-    FLAGS.msa_paths = [None for _ in FLAGS.fasta_paths]
+  fasta_name = pathlib.Path(FLAGS.fasta_path).stem
 
   if FLAGS.use_templates:
     template_featurizer = templates.TemplateHitFeaturizer(
@@ -327,22 +324,21 @@ def main(argv):
   logging.info('Using random seed %d for the data pipeline', random_seed)
 
   # Predict structure for each of the sequences.
-  for fasta_path, fasta_name, msa_path in zip(FLAGS.fasta_paths, fasta_names, FLAGS.msa_paths):
-    predict_structure(
-        fasta_path=fasta_path,
-        fasta_name=fasta_name,
-        msa_path=msa_path,
-        output_dir_base=FLAGS.output_dir,
-        data_pipeline=data_pipeline,
-        model_runners=model_runners,
-        amber_relaxer=amber_relaxer,
-        benchmark=FLAGS.benchmark,
-        random_seed=random_seed)
+  predict_structure(
+    fasta_path=FLAGS.fasta_path,
+    fasta_name=fasta_name,
+    msa_path=FLAGS.msa_path,
+    output_dir_base=FLAGS.output_dir,
+    data_pipeline=data_pipeline,
+    model_runners=model_runners,
+    amber_relaxer=amber_relaxer,
+    benchmark=FLAGS.benchmark,
+    random_seed=random_seed)
 
 
 if __name__ == '__main__':
   flags.mark_flags_as_required([
-      'fasta_paths',
+      'fasta_path',
   ])
 
   app.run(main)
