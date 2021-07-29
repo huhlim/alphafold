@@ -224,9 +224,9 @@ class DataPipeline:
       templates_features['template_aatype'] = \
               np.zeros([num_templates_, num_res, 22], np.float32)
       templates_features['template_all_atom_masks'] = \
-              np.zeros([num_templates_, num_res, 37, 3], np.float32)
-      templates_features['template_all_atom_positions'] = \
               np.zeros([num_templates_, num_res, 37], np.float32)
+      templates_features['template_all_atom_positions'] = \
+              np.zeros([num_templates_, num_res, 37, 3], np.float32)
       templates_features['template_domain_names'] = \
               np.zeros([num_templates_], np.float32)
       templates_features['template_sum_probs'] = \
