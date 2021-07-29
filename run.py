@@ -259,8 +259,7 @@ def main(argv):
 
   if FLAGS.oligomer:
     FLAGS.use_templates = False
-  else:
-    if FLAGS.msa_path is None:
+    if FLAGS.use_msa and FLAGS.msa_path is None:
       raise ValueError("Oligomer mode requires an MSA input")
   if FLAGS.custom_templates is not None:
     FLAGS.template_mmcif_dir = FLAGS.custom_templates
