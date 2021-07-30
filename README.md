@@ -95,7 +95,7 @@ $DOWNLOAD_DIR/                             # Total: ~ 2.2 TB (download: 438 GB)
     bfd/                                   # ~ 1.7 TB (download: 271.6 GB)
         # 6 files.
     mgnify/                                # ~ 64 GB (download: 32.9 GB)
-        mgy_clusters_2018_08.fa
+        mgy_clusters_2018_12.fa
     params/                                # ~ 3.5 GB (download: 3.5 GB)
         # 5 CASP14 models,
         # 5 pTM models,
@@ -420,8 +420,7 @@ The following databases have been mirrored by DeepMind, and are available with r
 
 *   [BFD](https://bfd.mmseqs.com/) (unmodified), by Steinegger M. and Söding J., available under a [Creative Commons Attribution-ShareAlike 4.0 International License](http://creativecommons.org/licenses/by-sa/4.0/).
 
-*   [BFD](https://bfd.mmseqs.com/) (modified), by Steinegger M. and Söding J., modified by DeepMind, available under a [Creative Commons Attribution-ShareAlike 4.0 International License](http://creativecommons.org/licenses/by-sa/4.0/). See the Methods section of the [AlphaFold proteome paper]
-(https://www.nature.com/articles/s41586-021-03828-1) for details.
+*   [BFD](https://bfd.mmseqs.com/) (modified), by Steinegger M. and Söding J., modified by DeepMind, available under a [Creative Commons Attribution-ShareAlike 4.0 International License](http://creativecommons.org/licenses/by-sa/4.0/). See the Methods section of the [AlphaFold proteome paper](https://www.nature.com/articles/s41586-021-03828-1) for details.
 
 *   [Uniclust30: v2018_08](http://wwwuser.gwdg.de/~compbiol/uniclust/2018_08/) (unmodified), by Mirdita M. et al., available under a [Creative Commons Attribution-ShareAlike 4.0 International License](http://creativecommons.org/licenses/by-sa/4.0/).
 
