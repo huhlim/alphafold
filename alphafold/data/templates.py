@@ -66,6 +66,8 @@ class MultipleChainsError(Error):
 class PrefilterError(Exception):
   """A base class for template prefilter exceptions."""
 
+class HighSequenceIdentityError(PrefilterError):
+  """An error indicating that the hit has a very high sequence identity."""
 
 class DateError(PrefilterError):
   """An error indicating that the hit date was after the max allowed date."""
@@ -173,6 +175,7 @@ def _assess_hhsearch_hit(
     query_pdb_code: Optional[str],
     release_dates: Mapping[str, datetime.datetime],
     release_date_cutoff: datetime.datetime,
+    max_sequence_identity: float = -1.,
     max_subsequence_ratio: float = 0.95,
     min_align_ratio: float = 0.1) -> bool:
   """Determines if template is valid (without parsing the template mmcif file).
@@ -205,6 +208,10 @@ def _assess_hhsearch_hit(
 
   template_sequence = hit.hit_sequence.replace('-', '')
   length_ratio = float(len(template_sequence)) / len(query_sequence)
+
+  if max_sequence_identity > 0. and hit.sequence_identity > max_sequence_identity:
+    raise HighSequenceIdentityError("High sequence identity %3d %% > %3d %%"%(\
+            hit.sequence_identity, max_sequence_identity))
 
   # Check whether the template is a large subsequence or duplicate of original
   # query. This can happen due to duplicate entries in the PDB database.
@@ -672,6 +679,7 @@ def _process_single_hit(
     hit: parsers.TemplateHit,
     mmcif_dir: str,
     max_template_date: datetime.datetime,
+    max_sequence_identity: float, 
     release_dates: Mapping[str, datetime.datetime],
     obsolete_pdbs: Mapping[str, str],
     kalign_binary_path: str,
@@ -692,7 +700,9 @@ def _process_single_hit(
         query_sequence=query_sequence,
         query_pdb_code=query_pdb_code,
         release_dates=release_dates,
-        release_date_cutoff=max_template_date)
+        release_date_cutoff=max_template_date,
+        max_sequence_identity=max_sequence_identity
+        )
   except PrefilterError as e:
     msg = f'hit {hit_pdb_code}_{hit_chain_id} did not pass prefilter: {str(e)}'
     logging.info('%s: %s', query_pdb_code, msg)
@@ -785,6 +795,7 @@ class TemplateHitFeaturizer:
       max_template_date: str,
       max_hits: int,
       kalign_binary_path: str,
+      max_sequence_identity: Optional[float],
       release_dates_path: Optional[str],
       obsolete_pdbs_path: Optional[str],
       strict_error_check: bool = False):
@@ -825,6 +836,13 @@ class TemplateHitFeaturizer:
     self._max_hits = max_hits
     self._kalign_binary_path = kalign_binary_path
     self._strict_error_check = strict_error_check
+
+    if max_sequence_identity and max_sequence_identity > 0.:
+        self._max_sequence_identity = max_sequence_identity
+        logging.info("Using maximum sequence identity cutoff for template filtering: %3d %%", \
+                self._max_sequence_identity)
+    else:
+        self._max_sequence_identity = -1.
 
     if release_dates_path:
       logging.info('Using precomputed release dates %s.', release_dates_path)
@@ -876,6 +894,7 @@ class TemplateHitFeaturizer:
           hit=hit,
           mmcif_dir=self._mmcif_dir,
           max_template_date=template_cutoff_date,
+          max_sequence_identity=self._max_sequence_identity,
           release_dates=self._release_dates,
           obsolete_pdbs=self._obsolete_pdbs,
           strict_error_check=self._strict_error_check,

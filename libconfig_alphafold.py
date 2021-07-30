@@ -7,7 +7,7 @@ hhblits_binary_path = "/home/huhlim/apps/hhsuite/current/bin/hhblits"
 hhsearch_binary_path = "/home/huhlim/apps/hhsuite/current/bin/hhsearch"
 kalign_binary_path = "/home/huhlim/conda/envs/ml/bin/kalign"
 
-DOWNLOAD_DIR = '/feig/s1/huhlim/apps/AlphaFold/db'
+DOWNLOAD_DIR = '/feig/s1/huhlim/db/AlphaFold'
 
 data_dir = DOWNLOAD_DIR
 

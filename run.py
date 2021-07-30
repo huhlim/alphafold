@@ -85,6 +85,7 @@ flags.DEFINE_string('obsolete_pdbs_path', libconfig_alphafold.obsolete_pdbs_path
                     'Path to file containing a '
                     'mapping from obsolete PDB IDs to the PDB IDs of their '
                     'replacements.')
+flags.DEFINE_float("max_sequence_identity", -1., "Maximum sequence identity for template prefilter")
 flags.DEFINE_boolean("use_relax", True, "Wheter to use AMBER local energy minimization")
 flags.DEFINE_boolean("use_templates", True, "Wheter to use PDB database")
 flags.DEFINE_boolean("use_msa", True, "Wheter to use MSA")
@@ -275,7 +276,9 @@ def main(argv):
         max_hits=MAX_TEMPLATE_HITS,
         kalign_binary_path=FLAGS.kalign_binary_path,
         release_dates_path=None,
-        obsolete_pdbs_path=FLAGS.obsolete_pdbs_path)
+        obsolete_pdbs_path=FLAGS.obsolete_pdbs_path, 
+        max_sequence_identity=FLAGS.max_sequence_identity,
+        )
   else:
     template_featurizer = None
 
