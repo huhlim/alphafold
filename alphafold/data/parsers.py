@@ -28,6 +28,7 @@ class TemplateHit:
   index: int
   name: str
   aligned_cols: int
+  sequence_identity: float
   sum_probs: float
   query: str
   hit_sequence: str
@@ -264,7 +265,7 @@ def _parse_hhr_hit(detailed_lines: Sequence[str]) -> TemplateHit:
     raise RuntimeError(
         'Could not parse section: %s. Expected this: \n%s to contain summary.' %
         (detailed_lines, detailed_lines[2]))
-  (prob_true, e_value, _, aligned_cols, _, _, sum_probs,
+  (prob_true, e_value, _, aligned_cols, sequence_identity, _, sum_probs,
    neff) = [float(x) for x in match.groups()]
 
   # The next section reads the detailed comparisons. These are in a 'human
@@ -324,6 +325,7 @@ def _parse_hhr_hit(detailed_lines: Sequence[str]) -> TemplateHit:
       name=name_hit,
       aligned_cols=int(aligned_cols),
       sum_probs=sum_probs,
+      sequence_identity=sequence_identity,
       query=query,
       hit_sequence=hit_sequence,
       indices_query=indices_query,
