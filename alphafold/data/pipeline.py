@@ -260,9 +260,13 @@ class DataPipeline:
     if self._is_oligomer and len(num_res_per_chain) > 1:
       split_chain(num_res_per_chain, sequence_features)
 
-    logging.info('Uniref90 MSA size: %d sequences.', len(uniref90_msa))
-    logging.info('BFD MSA size: %d sequences.', len(bfd_msa))
-    logging.info('MGnify MSA size: %d sequences.', len(mgnify_msa))
+    if self._use_msa:
+      if input_msa_path is None:
+        logging.info('Uniref90 MSA size: %d sequences.', len(uniref90_msa))
+        logging.info('BFD MSA size: %d sequences.', len(bfd_msa))
+        logging.info('MGnify MSA size: %d sequences.', len(mgnify_msa))
+      else:
+        logging.info('Input MSA size: %d sequences.', len(input_msa))
     logging.info('Final (deduplicated) MSA size: %d sequences.',
                  msa_features['num_alignments'][0])
     logging.info('Total number of templates (NB: this can include bad '
