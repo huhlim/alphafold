@@ -150,57 +150,88 @@ class DataPipeline:
       num_res_per_chain = [num_res]
 
     if self._use_msa and (input_msa_path is None):
-      jackhmmer_uniref90_result = self.jackhmmer_uniref90_runner.query(
-          input_fasta_path)[0]
-      jackhmmer_mgnify_result = self.jackhmmer_mgnify_runner.query(
-          input_fasta_path)[0]
-
-      uniref90_msa_as_a3m = parsers.convert_stockholm_to_a3m(
-          jackhmmer_uniref90_result['sto'], max_sequences=self.uniref_max_hits)
-      hhsearch_result = self.hhsearch_pdb70_runner.query(uniref90_msa_as_a3m)
-
+      # uniref90
       uniref90_out_path = os.path.join(msa_output_dir, 'uniref90_hits.sto')
-      with open(uniref90_out_path, 'w') as f:
-        f.write(jackhmmer_uniref90_result['sto'])
-
-      mgnify_out_path = os.path.join(msa_output_dir, 'mgnify_hits.sto')
-      with open(mgnify_out_path, 'w') as f:
-        f.write(jackhmmer_mgnify_result['sto'])
+      if os.path.exists(uniref90_out_path):
+        with open(uniref90_out_path) as f:
+          jackhmmer_uniref90_result_sto = f.read()
+      else:
+        jackhmmer_uniref90_result = self.jackhmmer_uniref90_runner.query(
+            input_fasta_path)[0]
+        jackhmmer_uniref90_result_sto = jackhmmer_uniref90_result['sto']
+        with open(uniref90_out_path, 'w') as f:
+          f.write(jackhmmer_uniref90_result_sto)
 
       uniref90_msa, uniref90_deletion_matrix, _ = parsers.parse_stockholm(
-          jackhmmer_uniref90_result['sto'])
+          jackhmmer_uniref90_result_sto)
+      uniref90_msa_as_a3m = parsers.convert_stockholm_to_a3m(
+          jackhmmer_uniref90_result_sto, max_sequences=self.uniref_max_hits)
+
+      # mgnify
+      mgnify_out_path = os.path.join(msa_output_dir, 'mgnify_hits.sto')
+      if os.path.exists(mgnify_out_path):
+        with open(mgnify_out_path) as f:
+          jackhmmer_mgnify_result_sto = f.read()
+      else:
+        jackhmmer_mgnify_result = self.jackhmmer_mgnify_runner.query(
+            input_fasta_path)[0]
+        jackhmmer_mgnify_result_sto = jackhmmer_mgnify_result['sto']
+        with open(mgnify_out_path, 'w') as f:
+          f.write(jackhmmer_mgnify_result_sto)
+
       mgnify_msa, mgnify_deletion_matrix, _ = parsers.parse_stockholm(
-          jackhmmer_mgnify_result['sto'])
-      hhsearch_hits = parsers.parse_hhr(hhsearch_result)
+          jackhmmer_mgnify_result_sto)
       mgnify_msa = mgnify_msa[:self.mgnify_max_hits]
       mgnify_deletion_matrix = mgnify_deletion_matrix[:self.mgnify_max_hits]
 
+      # pdb70
+      hhsearch_result = self.hhsearch_pdb70_runner.query(uniref90_msa_as_a3m)
+      hhsearch_hits = parsers.parse_hhr(hhsearch_result)
+
+      # bfd
       if self._use_small_bfd:
-        jackhmmer_small_bfd_result = self.jackhmmer_small_bfd_runner.query(
-            input_fasta_path)[0]
-
         bfd_out_path = os.path.join(msa_output_dir, 'small_bfd_hits.a3m')
-        with open(bfd_out_path, 'w') as f:
-          f.write(jackhmmer_small_bfd_result['sto'])
-
+        if os.path.exists(bfd_out_path):
+          with open(bfd_out_path) as f:
+            jackhmmer_small_bfd_result_sto = f.read()
+        else:
+            jackhmmer_small_bfd_result = self.jackhmmer_small_bfd_runner.query(
+                input_fasta_path)[0]
+            jackhmmer_small_bfd_result_sto = jackhmmer_small_bfd_result['sto']
+            with open(bfd_out_path, 'w') as f:
+              f.write(jackhmmer_small_bfd_result_sto)
         bfd_msa, bfd_deletion_matrix, _ = parsers.parse_stockholm(
-            jackhmmer_small_bfd_result['sto'])
+            jackhmmer_small_bfd_result_sto)
       else:
-        hhblits_bfd_uniclust_result = self.hhblits_bfd_uniclust_runner.query(
-            input_fasta_path)
-
         bfd_out_path = os.path.join(msa_output_dir, 'bfd_uniclust_hits.a3m')
-        with open(bfd_out_path, 'w') as f:
-          f.write(hhblits_bfd_uniclust_result['a3m'])
-
+        if os.path.exists(bfd_out_path):
+            with open(bfd_out_path) as f:
+                hhblits_bfd_uniclust_result_a3m = f.read()
+        else:
+            hhblits_bfd_uniclust_result = self.hhblits_bfd_uniclust_runner.query(
+                input_fasta_path)
+            hhblits_bfd_uniclust_result_a3m = hhblits_bfd_uniclust_result['a3m']
+            with open(bfd_out_path, 'w') as f:
+              f.write(hhblits_bfd_uniclust_result_a3m)
         bfd_msa, bfd_deletion_matrix = parsers.parse_a3m(
-            hhblits_bfd_uniclust_result['a3m'])
+            hhblits_bfd_uniclust_result_a3m)
+
     elif self.template_featurizer is not None:
       if input_msa_path is None:
-        jackhmmer_uniref90_result = self.jackhmmer_uniref90_runner.query(
-            input_fasta_path)[0]
+        # uniref90
+        uniref90_out_path = os.path.join(msa_output_dir, 'uniref90_hits.sto')
+        if os.path.exists(uniref90_out_path):
+          with open(uniref90_out_path) as f:
+            jackhmmer_uniref90_result_sto = f.read()
+        else:
+          jackhmmer_uniref90_result = self.jackhmmer_uniref90_runner.query(
+              input_fasta_path)[0]
+          jackhmmer_uniref90_result_sto = jackhmmer_uniref90_result['sto']
+          with open(uniref90_out_path, 'w') as f:
+            f.write(jackhmmer_uniref90_result_sto)
+        #
         uniref90_msa_as_a3m = parsers.convert_stockholm_to_a3m(
-            jackhmmer_uniref90_result['sto'], max_sequences=self.uniref_max_hits)
+            jackhmmer_uniref90_result_sto, max_sequences=self.uniref_max_hits)
         input_msa_a3m = uniref90_msa_as_a3m
       else:
         with open(input_msa_path) as f:
