@@ -108,23 +108,35 @@ class DataPipeline:
     self._use_small_bfd = use_small_bfd
     self._use_msa = use_msa
     self._is_oligomer = is_oligomer
-    self.jackhmmer_uniref90_runner = jackhmmer.Jackhmmer(
-        binary_path=jackhmmer_binary_path,
-        database_path=uniref90_database_path)
-    if use_small_bfd:
-      self.jackhmmer_small_bfd_runner = jackhmmer.Jackhmmer(
-          binary_path=jackhmmer_binary_path,
-          database_path=small_bfd_database_path)
-    else:
-      self.hhblits_bfd_uniclust_runner = hhblits.HHBlits(
-          binary_path=hhblits_binary_path,
-          databases=[bfd_database_path, uniclust30_database_path])
-    self.jackhmmer_mgnify_runner = jackhmmer.Jackhmmer(
-        binary_path=jackhmmer_binary_path,
-        database_path=mgnify_database_path)
-    self.hhsearch_pdb70_runner = hhsearch.HHSearch(
-        binary_path=hhsearch_binary_path,
-        databases=[pdb70_database_path])
+    #
+    if self._use_msa:
+        self.jackhmmer_uniref90_runner = jackhmmer.Jackhmmer(
+            binary_path=jackhmmer_binary_path,
+            database_path=uniref90_database_path)
+        if use_small_bfd:
+          self.jackhmmer_small_bfd_runner = jackhmmer.Jackhmmer(
+              binary_path=jackhmmer_binary_path,
+              database_path=small_bfd_database_path)
+        else:
+          self.hhblits_bfd_uniclust_runner = hhblits.HHBlits(
+              binary_path=hhblits_binary_path,
+              databases=[bfd_database_path, uniclust30_database_path])
+        self.jackhmmer_mgnify_runner = jackhmmer.Jackhmmer(
+            binary_path=jackhmmer_binary_path,
+            database_path=mgnify_database_path)
+        #
+        self.hhsearch_pdb70_runner = hhsearch.HHSearch(
+            binary_path=hhsearch_binary_path,
+            databases=[pdb70_database_path])
+
+    elif template_featurizer is not None:
+        self.jackhmmer_uniref90_runner = jackhmmer.Jackhmmer(
+            binary_path=jackhmmer_binary_path,
+            database_path=uniref90_database_path)
+        #
+        self.hhsearch_pdb70_runner = hhsearch.HHSearch(
+            binary_path=hhsearch_binary_path,
+            databases=[pdb70_database_path])
     self.template_featurizer = template_featurizer
     self.mgnify_max_hits = mgnify_max_hits
     self.uniref_max_hits = uniref_max_hits

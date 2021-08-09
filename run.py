@@ -89,6 +89,8 @@ flags.DEFINE_float("max_sequence_identity", -1., "Maximum sequence identity for 
 flags.DEFINE_boolean("use_relax", True, "Wheter to use AMBER local energy minimization")
 flags.DEFINE_boolean("use_templates", True, "Wheter to use PDB database")
 flags.DEFINE_boolean("use_msa", True, "Wheter to use MSA")
+flags.DEFINE_boolean("remove_msa_for_template_aligned", False, \
+                    'Remove MSA information for template aligned region')
 flags.DEFINE_string("msa_path", None, "User input MSA")
 flags.DEFINE_string("custom_templates", None, "User input templates")
 flags.DEFINE_boolean("oligomer", False, "Whether to predict as an oligomer")
@@ -104,6 +106,7 @@ flags.DEFINE_boolean('benchmark', False, 'Run multiple JAX model evaluations '
                      'to obtain a timing that excludes the compilation time, '
                      'which should be more indicative of the time required for '
                      'inferencing many proteins.')
+flags.DEFINE_integer("num_recycle", 3, "The number of recycling")
 flags.DEFINE_integer('random_seed', None, 'The random seed for the data '
                      'pipeline. By default, this is randomly generated. Note '
                      'that even if this is set, Alphafold may still not be '
@@ -123,6 +126,17 @@ def _check_flag(flag_name: str, preset: str, should_be_set: bool):
     verb = 'be' if should_be_set else 'not be'
     raise ValueError(f'{flag_name} must {verb} set for preset "{preset}"')
 
+def remove_msa_for_template_aligned_regions(feature_dict):
+    mask = np.zeros(feature_dict['seq_length'][0], dtype=bool)
+    for templ in feature_dict['template_sequence']:
+        for i,aa in enumerate(templ.decode("utf-8")):
+            if aa != '-':
+                mask[i] = True
+    #
+    feature_dict['deletion_matrix_int'][:,mask] = 0
+    feature_dict['msa'][:,mask] = 21
+    return feature_dict
+
 def predict_structure(
     fasta_path: str,
     fasta_name: str,
@@ -131,6 +145,7 @@ def predict_structure(
     data_pipeline: pipeline.DataPipeline,
     model_runners: Dict[str, model.RunModel],
     amber_relaxer: relax.AmberRelaxation,
+    remove_msa_for_template_aligned: bool,
     benchmark: bool,
     random_seed: int):
   """Predicts structure using AlphaFold for the given sequence."""
@@ -154,6 +169,8 @@ def predict_structure(
           input_fasta_path=fasta_path,
           input_msa_path=msa_path,
           msa_output_dir=msa_output_dir)
+      if remove_msa_for_template_aligned:
+          feature_dict = remove_msa_for_template_aligned_regions(feature_dict)
       timings['features'] = time.time() - t_0
 
       # Write out features as a pickled dictionary.
@@ -165,8 +182,17 @@ def predict_structure(
 
   # Run the models.
   for model_name, model_runner in model_runners.items():
-    #if model_name in ['model_1']:
-    #  continue
+    final_output_path = os.path.join(output_dir, f'relaxed_{model_name}.pdb')
+    result_output_path = os.path.join(output_dir, f'result_{model_name}.pkl')
+    if os.path.exists(final_output_path):
+        with open(result_output_path, 'rb') as f:
+            prediction_result = pickle.load(f)
+            plddts[model_name] = np.mean(prediction_result['plddt'])
+        with open(final_output_path) as fp:
+            relaxed_pdb_str = fp.read()
+        relaxed_pdbs[model_name] = relaxed_pdb_str
+        continue
+
     logging.info('Running model %s', model_name)
     t_0 = time.time()
     processed_feature_dict = model_runner.process_features(
@@ -190,7 +216,6 @@ def predict_structure(
     plddts[model_name] = np.mean(prediction_result['plddt'])
 
     # Save the model outputs.
-    result_output_path = os.path.join(output_dir, f'result_{model_name}.pkl')
     with open(result_output_path, 'wb') as f:
       pickle.dump(prediction_result, f, protocol=4)
 
@@ -302,6 +327,7 @@ def main(argv):
   for model_name in FLAGS.model_names:
     model_config = config.model_config(model_name)
     model_config.data.eval.num_ensemble = num_ensemble
+    model_config.data.common.num_recycle = FLAGS.num_recycle
     model_params = data.get_model_haiku_params(
         model_name=model_name, data_dir=FLAGS.data_dir)
     model_runner = model.RunModel(model_config, model_params, FLAGS.jit)
@@ -334,6 +360,7 @@ def main(argv):
     data_pipeline=data_pipeline,
     model_runners=model_runners,
     amber_relaxer=amber_relaxer,
+    remove_msa_for_template_aligned=FLAGS.remove_msa_for_template_aligned,
     benchmark=FLAGS.benchmark,
     random_seed=random_seed)
 
