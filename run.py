@@ -23,6 +23,7 @@ import sys
 import time
 from typing import Dict
 
+import jax
 from absl import app
 from absl import flags
 from absl import logging
@@ -94,6 +95,7 @@ flags.DEFINE_boolean("remove_msa_for_template_aligned", False, \
 flags.DEFINE_string("msa_path", None, "User input MSA")
 flags.DEFINE_string("custom_templates", None, "User input templates")
 flags.DEFINE_boolean("oligomer", False, "Whether to predict as an oligomer")
+flags.DEFINE_boolean("feature_only", False, "Whether to generate features.pkl only")
 flags.DEFINE_enum('preset', 'full_dbs',
                   ['reduced_dbs', 'full_dbs', 'casp14'],
                   'Choose preset model configuration - no ensembling and '
@@ -101,7 +103,7 @@ flags.DEFINE_enum('preset', 'full_dbs',
                   'ensembling and full genetic database config  (full_dbs) or '
                   'full genetic database config and 8 model ensemblings '
                   '(casp14).')
-flags.DEFINE_boolean('jit', False, 'compile using jax.jit')
+flags.DEFINE_boolean('jit', True, 'compile using jax.jit')
 flags.DEFINE_boolean('benchmark', False, 'Run multiple JAX model evaluations '
                      'to obtain a timing that excludes the compilation time, '
                      'which should be more indicative of the time required for '
@@ -119,13 +121,14 @@ RELAX_MAX_ITERATIONS = 0
 RELAX_ENERGY_TOLERANCE = 2.39
 RELAX_STIFFNESS = 10.0
 RELAX_EXCLUDE_RESIDUES = []
-RELAX_MAX_OUTER_ITERATIONS = 20
+#RELAX_MAX_OUTER_ITERATIONS = 20
+RELAX_MAX_OUTER_ITERATIONS = 5
 
 def _check_flag(flag_name: str, preset: str, should_be_set: bool):
-  if should_be_set != bool(FLAGS[flag_name].value):
-    verb = 'be' if should_be_set else 'not be'
-    raise ValueError(f'{flag_name} must {verb} set for preset "{preset}"')
-
+    if should_be_set != bool(FLAGS[flag_name].value):
+        verb = 'be' if should_be_set else 'not be'
+        raise ValueError(f'{flag_name} must {verb} set for preset "{preset}"')
+     
 def remove_msa_for_template_aligned_regions(feature_dict):
     mask = np.zeros(feature_dict['seq_length'][0], dtype=bool)
     for templ in feature_dict['template_sequence']:
@@ -147,222 +150,238 @@ def predict_structure(
     amber_relaxer: relax.AmberRelaxation,
     remove_msa_for_template_aligned: bool,
     benchmark: bool,
+    feature_only: bool,
     random_seed: int):
-  """Predicts structure using AlphaFold for the given sequence."""
-  timings = {}
-  output_dir = os.path.join(output_dir_base, fasta_name)
-  if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
-  msa_output_dir = os.path.join(output_dir, 'msas')
-  if not os.path.exists(msa_output_dir):
-    os.makedirs(msa_output_dir)
-
-  # Get features.
-  t_0 = time.time()
-  features_output_path = os.path.join(output_dir, 'features.pkl')
-  if os.path.exists(features_output_path):
-      with open(features_output_path, 'rb') as f:
-        feature_dict = pickle.load(f)
-      timings['features'] = time.time() - t_0
-  else:
-      feature_dict = data_pipeline.process(
-          input_fasta_path=fasta_path,
-          input_msa_path=msa_path,
-          msa_output_dir=msa_output_dir)
-      if remove_msa_for_template_aligned:
-          feature_dict = remove_msa_for_template_aligned_regions(feature_dict)
-      timings['features'] = time.time() - t_0
-
-      # Write out features as a pickled dictionary.
-      with open(features_output_path, 'wb') as f:
-        pickle.dump(feature_dict, f, protocol=4)
-
-  relaxed_pdbs = {}
-  plddts = {}
-
-  # Run the models.
-  for model_name, model_runner in model_runners.items():
-    final_output_path = os.path.join(output_dir, f'relaxed_{model_name}.pdb')
-    result_output_path = os.path.join(output_dir, f'result_{model_name}.pkl')
-    if os.path.exists(final_output_path):
-        with open(result_output_path, 'rb') as f:
-            prediction_result = pickle.load(f)
-            plddts[model_name] = np.mean(prediction_result['plddt'])
-        with open(final_output_path) as fp:
-            relaxed_pdb_str = fp.read()
-        relaxed_pdbs[model_name] = relaxed_pdb_str
-        continue
-
-    logging.info('Running model %s', model_name)
+    """Predicts structure using AlphaFold for the given sequence."""
+    timings = {}
+    output_dir = os.path.join(output_dir_base, fasta_name)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    msa_output_dir = os.path.join(output_dir, 'msas')
+    if not os.path.exists(msa_output_dir):
+        os.makedirs(msa_output_dir)
+  
+    # Get features.
     t_0 = time.time()
-    processed_feature_dict = model_runner.process_features(
-        feature_dict, random_seed=random_seed)
-    timings[f'process_features_{model_name}'] = time.time() - t_0
-
-    t_0 = time.time()
-    prediction_result = model_runner.predict(processed_feature_dict)
-    t_diff = time.time() - t_0
-    timings[f'predict_and_compile_{model_name}'] = t_diff
-    logging.info(
-        'Total JAX model %s predict time (includes compilation time, see --benchmark): %.0f?',
-        model_name, t_diff)
-
-    if benchmark:
-      t_0 = time.time()
-      model_runner.predict(processed_feature_dict)
-      timings[f'predict_benchmark_{model_name}'] = time.time() - t_0
-
-    # Get mean pLDDT confidence metric.
-    plddts[model_name] = np.mean(prediction_result['plddt'])
-
-    # Save the model outputs.
-    with open(result_output_path, 'wb') as f:
-      pickle.dump(prediction_result, f, protocol=4)
-
-    unrelaxed_protein = protein.from_prediction(processed_feature_dict,
-                                                prediction_result)
-
-    unrelaxed_pdb_path = os.path.join(output_dir, f'unrelaxed_{model_name}.pdb')
-    with open(unrelaxed_pdb_path, 'w') as f:
-      f.write(protein.to_pdb(unrelaxed_protein))
-
-    # Relax the prediction.
-    t_0 = time.time()
-    if amber_relaxer is not None:
-      relaxed_pdb_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein)
+    features_output_path = os.path.join(output_dir, 'features.pkl')
+    if os.path.exists(features_output_path):
+        with open(features_output_path, 'rb') as f:
+            feature_dict = pickle.load(f)
+        timings['features'] = time.time() - t_0
     else:
-      relaxed_pdb_str = protein.to_pdb(unrelaxed_protein)
-    timings[f'relax_{model_name}'] = time.time() - t_0
+        feature_dict = data_pipeline.process(
+            input_fasta_path=fasta_path,
+            input_msa_path=msa_path,
+            msa_output_dir=msa_output_dir)
+        if remove_msa_for_template_aligned:
+            feature_dict = remove_msa_for_template_aligned_regions(feature_dict)
+        timings['features'] = time.time() - t_0
+  
+        # Write out features as a pickled dictionary.
+        with open(features_output_path, 'wb') as f:
+          pickle.dump(feature_dict, f, protocol=4)
+    if feature_only:
+        return
+  
+    relaxed_pdbs = {}
+    plddts = {}
 
-    relaxed_pdbs[model_name] = relaxed_pdb_str
+    # Run the models.
+    for model_name, model_runner in model_runners.items():
+        final_output_path = os.path.join(output_dir, f'relaxed_{model_name}.pdb')
+        result_output_path = os.path.join(output_dir, f'result_{model_name}.pkl')
+        if os.path.exists(final_output_path):
+            with open(result_output_path, 'rb') as f:
+                prediction_result = pickle.load(f)
+                plddts[model_name] = np.mean(prediction_result['plddt'])
+            with open(final_output_path) as fp:
+                relaxed_pdb_str = fp.read()
+            relaxed_pdbs[model_name] = relaxed_pdb_str
+            continue
+       
+        logging.info('Running model %s', model_name)
+        t_0 = time.time()
+        processed_feature_dict = model_runner.process_features(
+            feature_dict, random_seed=random_seed)
+        timings[f'process_features_{model_name}'] = time.time() - t_0
+       
+        t_0 = time.time()
+        if not os.path.exists(result_output_path):
+            prediction_result = model_runner.predict(processed_feature_dict)
+            t_diff = time.time() - t_0
+            timings[f'predict_and_compile_{model_name}'] = t_diff
+            logging.info(
+                'Total JAX model %s predict time (includes compilation time, see --benchmark): %.0f?',
+                model_name, t_diff)
+       
+            if benchmark:
+                t_0 = time.time()
+                model_runner.predict(processed_feature_dict)
+                timings[f'predict_benchmark_{model_name}'] = time.time() - t_0
+       
+            # Save the model outputs.
+            with open(result_output_path, 'wb') as f:
+                pickle.dump(prediction_result, f, protocol=4)
+        else:
+            with open(result_output_path, 'rb') as f:
+                prediction_result = pickle.load(f)
+       
+        # Get mean pLDDT confidence metric.
+        plddts[model_name] = np.mean(prediction_result['plddt'])
+       
+        unrelaxed_pdb_path = os.path.join(output_dir, f'unrelaxed_{model_name}.pdb')
+        if not os.path.exists(unrelaxed_pdb_path):
+            unrelaxed_protein = protein.from_prediction(processed_feature_dict,
+                                                        prediction_result)
+       
+            with open(unrelaxed_pdb_path, 'w') as f:
+                f.write(protein.to_pdb(unrelaxed_protein))
+        else:
+            with open(unrelaxed_pdb_path) as fp:
+                unrelaxed_pdb_str = fp.read()
+            unrelaxed_protein = protein.from_pdb_string(unrelaxed_pdb_str)
+       
+        # Relax the prediction.
+        t_0 = time.time()
+        if amber_relaxer is not None:
+            relaxed_pdb_str, _, _ = amber_relaxer.process(prot=unrelaxed_protein)
+        else:
+            relaxed_pdb_str = protein.to_pdb(unrelaxed_protein)
+        timings[f'relax_{model_name}'] = time.time() - t_0
+       
+        relaxed_pdbs[model_name] = relaxed_pdb_str
+       
+        # Save the relaxed PDB.
+        relaxed_output_path = os.path.join(output_dir, f'relaxed_{model_name}.pdb')
+        with open(relaxed_output_path, 'w') as f:
+            f.write(relaxed_pdb_str)
 
-    # Save the relaxed PDB.
-    relaxed_output_path = os.path.join(output_dir, f'relaxed_{model_name}.pdb')
-    with open(relaxed_output_path, 'w') as f:
-      f.write(relaxed_pdb_str)
-
-  # Rank by pLDDT and write out relaxed PDBs in rank order.
-  ranked_order = []
-  for idx, (model_name, _) in enumerate(
-      sorted(plddts.items(), key=lambda x: x[1], reverse=True)):
-    ranked_order.append(model_name)
-    ranked_output_path = os.path.join(output_dir, f'ranked_{idx}.pdb')
-    with open(ranked_output_path, 'w') as f:
-      f.write(relaxed_pdbs[model_name])
-
-  ranking_output_path = os.path.join(output_dir, 'ranking_debug.json')
-  with open(ranking_output_path, 'w') as f:
-    f.write(json.dumps({'plddts': plddts, 'order': ranked_order}, indent=4))
-
-  logging.info('Final timings for %s: %s', fasta_name, timings)
-
-  timings_output_path = os.path.join(output_dir, 'timings.json')
-  with open(timings_output_path, 'w') as f:
-    f.write(json.dumps(timings, indent=4))
+    # Rank by pLDDT and write out relaxed PDBs in rank order.
+    ranked_order = []
+    for idx, (model_name, _) in enumerate(
+        sorted(plddts.items(), key=lambda x: x[1], reverse=True)):
+        ranked_order.append(model_name)
+        ranked_output_path = os.path.join(output_dir, f'ranked_{idx}.pdb')
+        with open(ranked_output_path, 'w') as f:
+            f.write(relaxed_pdbs[model_name])
+  
+    ranking_output_path = os.path.join(output_dir, 'ranking_debug.json')
+    with open(ranking_output_path, 'w') as f:
+        f.write(json.dumps({'plddts': plddts, 'order': ranked_order}, indent=4))
+  
+    logging.info('Final timings for %s: %s', fasta_name, timings)
+  
+    timings_output_path = os.path.join(output_dir, 'timings.json')
+    with open(timings_output_path, 'w') as f:
+        f.write(json.dumps(timings, indent=4))
 
 
 def main(argv):
-  if len(argv) > 1:
-    raise app.UsageError('Too many command-line arguments.')
-
-  use_small_bfd = FLAGS.preset == 'reduced_dbs'
-  if use_small_bfd:
-      FLAGS.bfd_database_path = None
-      FLAGS.uniclust30_database_path = None
-  else:
-      FLAGS.small_bfd_database_path = None
-  _check_flag('small_bfd_database_path', FLAGS.preset,
-              should_be_set=use_small_bfd)
-  _check_flag('bfd_database_path', FLAGS.preset,
-              should_be_set=not use_small_bfd)
-  _check_flag('uniclust30_database_path', FLAGS.preset,
-              should_be_set=not use_small_bfd)
-
-  if FLAGS.preset in ('reduced_dbs', 'full_dbs'):
-    num_ensemble = 1
-  elif FLAGS.preset == 'casp14':
-    num_ensemble = 8
-
-  if FLAGS.oligomer:
-    FLAGS.use_templates = False
-    if FLAGS.use_msa and FLAGS.msa_path is None:
-      raise ValueError("Oligomer mode requires an MSA input")
-  if FLAGS.custom_templates is not None:
-    FLAGS.template_mmcif_dir = FLAGS.custom_templates
-    FLAGS.pdb70_database_path = "%s/pdb70"%FLAGS.custom_templates
-
-  # Check for duplicate FASTA file names.
-  fasta_name = pathlib.Path(FLAGS.fasta_path).stem
-
-  if FLAGS.use_templates:
-    template_featurizer = templates.TemplateHitFeaturizer(
-        mmcif_dir=FLAGS.template_mmcif_dir,
-        max_template_date=FLAGS.max_template_date,
-        max_hits=MAX_TEMPLATE_HITS,
-        kalign_binary_path=FLAGS.kalign_binary_path,
-        release_dates_path=None,
-        obsolete_pdbs_path=FLAGS.obsolete_pdbs_path, 
-        max_sequence_identity=FLAGS.max_sequence_identity,
+    if len(argv) > 1:
+        raise app.UsageError('Too many command-line arguments.')
+ 
+    use_small_bfd = FLAGS.preset == 'reduced_dbs'
+    if use_small_bfd:
+        FLAGS.bfd_database_path = None
+        FLAGS.uniclust30_database_path = None
+    else:
+        FLAGS.small_bfd_database_path = None
+    _check_flag('small_bfd_database_path', FLAGS.preset,
+                should_be_set=use_small_bfd)
+    _check_flag('bfd_database_path', FLAGS.preset,
+                should_be_set=not use_small_bfd)
+    _check_flag('uniclust30_database_path', FLAGS.preset,
+                should_be_set=not use_small_bfd)
+    if not FLAGS.jit:
+        jax.config.update("jax_disable_jit", True)
+ 
+    if FLAGS.preset in ('reduced_dbs', 'full_dbs'):
+        num_ensemble = 1
+    elif FLAGS.preset == 'casp14':
+        num_ensemble = 8
+ 
+    if FLAGS.oligomer:
+        FLAGS.use_templates = False
+        if FLAGS.use_msa and FLAGS.msa_path is None:
+          raise ValueError("Oligomer mode requires an MSA input")
+    if FLAGS.custom_templates is not None:
+        FLAGS.template_mmcif_dir = FLAGS.custom_templates
+        FLAGS.pdb70_database_path = "%s/pdb70"%FLAGS.custom_templates
+    
+ 
+    # Check for duplicate FASTA file names.
+    fasta_name = pathlib.Path(FLAGS.fasta_path).stem
+ 
+    if FLAGS.use_templates:
+        template_featurizer = templates.TemplateHitFeaturizer(
+            mmcif_dir=FLAGS.template_mmcif_dir,
+            max_template_date=FLAGS.max_template_date,
+            max_hits=MAX_TEMPLATE_HITS,
+            kalign_binary_path=FLAGS.kalign_binary_path,
+            release_dates_path=None,
+            obsolete_pdbs_path=FLAGS.obsolete_pdbs_path, 
+            max_sequence_identity=FLAGS.max_sequence_identity,
+            )
+    else:
+        template_featurizer = None
+ 
+    data_pipeline = pipeline.DataPipeline(
+        jackhmmer_binary_path=FLAGS.jackhmmer_binary_path,
+        hhblits_binary_path=FLAGS.hhblits_binary_path,
+        hhsearch_binary_path=FLAGS.hhsearch_binary_path,
+        uniref90_database_path=FLAGS.uniref90_database_path,
+        mgnify_database_path=FLAGS.mgnify_database_path,
+        bfd_database_path=FLAGS.bfd_database_path,
+        uniclust30_database_path=FLAGS.uniclust30_database_path,
+        small_bfd_database_path=FLAGS.small_bfd_database_path,
+        pdb70_database_path=FLAGS.pdb70_database_path,
+        template_featurizer=template_featurizer,
+        use_small_bfd=use_small_bfd,
+        use_msa=FLAGS.use_msa,
+        is_oligomer=FLAGS.oligomer,
         )
-  else:
-    template_featurizer = None
-
-  data_pipeline = pipeline.DataPipeline(
-      jackhmmer_binary_path=FLAGS.jackhmmer_binary_path,
-      hhblits_binary_path=FLAGS.hhblits_binary_path,
-      hhsearch_binary_path=FLAGS.hhsearch_binary_path,
-      uniref90_database_path=FLAGS.uniref90_database_path,
-      mgnify_database_path=FLAGS.mgnify_database_path,
-      bfd_database_path=FLAGS.bfd_database_path,
-      uniclust30_database_path=FLAGS.uniclust30_database_path,
-      small_bfd_database_path=FLAGS.small_bfd_database_path,
-      pdb70_database_path=FLAGS.pdb70_database_path,
-      template_featurizer=template_featurizer,
-      use_small_bfd=use_small_bfd,
-      use_msa=FLAGS.use_msa,
-      is_oligomer=FLAGS.oligomer,
-      )
-
-  model_runners = {}
-  for model_name in FLAGS.model_names:
-    model_config = config.model_config(model_name)
-    model_config.data.eval.num_ensemble = num_ensemble
-    model_config.data.common.num_recycle = FLAGS.num_recycle
-    model_params = data.get_model_haiku_params(
-        model_name=model_name, data_dir=FLAGS.data_dir)
-    model_runner = model.RunModel(model_config, model_params, FLAGS.jit)
-    model_runners[model_name] = model_runner
-
-  logging.info('Have %d models: %s', len(model_runners),
-               list(model_runners.keys()))
-
-  if FLAGS.use_relax:
-    amber_relaxer = relax.AmberRelaxation(
-        max_iterations=RELAX_MAX_ITERATIONS,
-        tolerance=RELAX_ENERGY_TOLERANCE,
-        stiffness=RELAX_STIFFNESS,
-        exclude_residues=RELAX_EXCLUDE_RESIDUES,
-        max_outer_iterations=RELAX_MAX_OUTER_ITERATIONS)
-  else:
-    amber_relaxer = None
-
-  random_seed = FLAGS.random_seed
-  if random_seed is None:
-    random_seed = random.randrange(sys.maxsize)
-  logging.info('Using random seed %d for the data pipeline', random_seed)
-
-  # Predict structure for each of the sequences.
-  predict_structure(
-    fasta_path=FLAGS.fasta_path,
-    fasta_name=fasta_name,
-    msa_path=FLAGS.msa_path,
-    output_dir_base=FLAGS.output_dir,
-    data_pipeline=data_pipeline,
-    model_runners=model_runners,
-    amber_relaxer=amber_relaxer,
-    remove_msa_for_template_aligned=FLAGS.remove_msa_for_template_aligned,
-    benchmark=FLAGS.benchmark,
-    random_seed=random_seed)
+ 
+    model_runners = {}
+    for model_name in FLAGS.model_names:
+        model_config = config.model_config(model_name)
+        model_config.data.eval.num_ensemble = num_ensemble
+        model_config.data.common.num_recycle = FLAGS.num_recycle
+        model_params = data.get_model_haiku_params(
+            model_name=model_name, data_dir=FLAGS.data_dir)
+        model_runner = model.RunModel(model_config, model_params, FLAGS.jit)
+        model_runners[model_name] = model_runner
+ 
+    logging.info('Have %d models: %s', len(model_runners),
+                 list(model_runners.keys()))
+ 
+    if FLAGS.use_relax:
+        amber_relaxer = relax.AmberRelaxation(
+            max_iterations=RELAX_MAX_ITERATIONS,
+            tolerance=RELAX_ENERGY_TOLERANCE,
+            stiffness=RELAX_STIFFNESS,
+            exclude_residues=RELAX_EXCLUDE_RESIDUES,
+            max_outer_iterations=RELAX_MAX_OUTER_ITERATIONS)
+    else:
+        amber_relaxer = None
+ 
+    random_seed = FLAGS.random_seed
+    if random_seed is None:
+        random_seed = random.randrange(sys.maxsize)
+    logging.info('Using random seed %d for the data pipeline', random_seed)
+ 
+    # Predict structure for each of the sequences.
+    predict_structure(
+        fasta_path=FLAGS.fasta_path,
+        fasta_name=fasta_name,
+        msa_path=FLAGS.msa_path,
+        output_dir_base=FLAGS.output_dir,
+        data_pipeline=data_pipeline,
+        model_runners=model_runners,
+        amber_relaxer=amber_relaxer,
+        remove_msa_for_template_aligned=FLAGS.remove_msa_for_template_aligned,
+        benchmark=FLAGS.benchmark,
+        feature_only=FLAGS.feature_only,
+        random_seed=random_seed)
 
 
 if __name__ == '__main__':

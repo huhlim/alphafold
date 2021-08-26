@@ -76,7 +76,8 @@ def _openmm_minimize(
     tolerance: unit.Unit,
     stiffness: unit.Unit,
     restraint_set: str,
-    exclude_residues: Sequence[int]):
+    exclude_residues: Sequence[int],
+    platform: str):
   """Minimize energy via openmm."""
 
   pdb_file = io.StringIO(pdb_str)
@@ -90,9 +91,13 @@ def _openmm_minimize(
     _add_restraints(system, pdb, stiffness, restraint_set, exclude_residues)
 
   integrator = openmm.LangevinIntegrator(0, 0.01, 0.0)
-  platform = openmm.Platform.getPlatformByName("CPU")
-  simulation = openmm_app.Simulation(
-      pdb.topology, system, integrator, platform)
+  if platform != '':
+      platform = openmm.Platform.getPlatformByName(platform)
+      simulation = openmm_app.Simulation(
+          pdb.topology, system, integrator, platform)
+  else:
+      simulation = openmm_app.Simulation(
+          pdb.topology, system, integrator)
   simulation.context.setPositions(pdb.positions)
 
   ret = {}
@@ -371,7 +376,9 @@ def _run_one_iteration(
     stiffness: float,
     restraint_set: str,
     max_attempts: int,
-    exclude_residues: Optional[Collection[int]] = None):
+    exclude_residues: Optional[Collection[int]] = None,
+    platform: Optional[str] = 'CPU'
+    ):
   """Runs the minimization pipeline.
 
   Args:
@@ -407,7 +414,8 @@ def _run_one_iteration(
           pdb_string, max_iterations=max_iterations,
           tolerance=tolerance, stiffness=stiffness,
           restraint_set=restraint_set,
-          exclude_residues=exclude_residues)
+          exclude_residues=exclude_residues,
+          platform=platform)
       minimized = True
     except Exception as e:  # pylint: disable=broad-except
       logging.info(e)
@@ -464,6 +472,7 @@ def run_pipeline(
   exclude_residues = set(exclude_residues)
   violations = np.inf
   iteration = 0
+  platform = 'CPU'
 
   while violations > 0 and iteration < max_outer_iterations:
     ret = _run_one_iteration(
@@ -473,7 +482,8 @@ def run_pipeline(
         tolerance=tolerance,
         stiffness=stiffness,
         restraint_set=restraint_set,
-        max_attempts=max_attempts)
+        max_attempts=max_attempts, 
+        platform=platform)
     prot = protein.from_pdb_string(ret["min_pdb"])
     if place_hydrogens_every_iteration:
       pdb_string = clean_protein(prot, checks=True)
@@ -486,6 +496,9 @@ def run_pipeline(
     })
     violations = ret["violations_per_residue"]
     exclude_residues = exclude_residues.union(ret["residue_violations"])
+
+    if ret['opt_time'] > 180:
+        platform = '' # to select openmm platform automatically, usually it resulted in CUDA
 
     logging.info("Iteration completed: Einit %.2f Efinal %.2f Time %.2f s "
                  "num residue violations %d num residue exclusions %d ",
