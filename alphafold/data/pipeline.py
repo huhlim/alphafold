@@ -290,12 +290,16 @@ class DataPipeline:
       else:
         with open(input_msa_path) as f:
           a3m = f.read()
+        with open(os.path.join(msa_output_dir, 'input_msa.a3m'), 'wt') as fout:
+          fout.write(a3m)
         input_msa, input_deletion_matrix = parsers.parse_a3m(a3m)
         msa_features = make_msa_features(msas=(input_msa,), \
                 deletion_matrices=(input_deletion_matrix,))
     else:
       with open(input_fasta_path) as f:
         a3m = f.read()
+      with open(os.path.join(msa_output_dir, 'input_seq.a3m'), 'wt') as fout:
+        fout.write(a3m)
       seq_msa, seq_deletion_matrix = parsers.parse_a3m(a3m)
       msa_features = make_msa_features(msas=(seq_msa,), \
               deletion_matrices=(seq_deletion_matrix,))
