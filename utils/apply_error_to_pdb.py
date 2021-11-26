@@ -26,7 +26,7 @@ def apply_error(out_fn, pdb_fn, plddt_global, residue_error):
                 continue
             resNo = int(line[22:26])
             i_res = resNo-1
-            wrt.append("%s%6.2f%s"%(line[:60], 100.-residue_error[i_res], line[66:]))
+            wrt.append("%s%6.2f%s"%(line[:60], residue_error[i_res], line[66:]))
     with open(out_fn, 'wt') as fout:
         fout.writelines(wrt)
 
