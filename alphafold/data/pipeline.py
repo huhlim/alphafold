@@ -161,6 +161,7 @@ class DataPipeline:
   def process(self, 
           input_fasta_path: str, 
           input_msa_path: str,
+          input_pdb_path: str,
           msa_output_dir: str) -> FeatureDict:
 
     # sequence-based features

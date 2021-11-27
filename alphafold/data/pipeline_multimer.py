@@ -21,7 +21,7 @@ import dataclasses
 import json
 import os
 import tempfile
-from typing import Mapping, MutableMapping, Sequence
+from typing import Mapping, MutableMapping, Sequence, List
 
 from absl import logging
 from alphafold.common import protein
@@ -242,13 +242,18 @@ class DataPipeline:
 
   def process(self,
               input_fasta_path: str,
-              input_msa_path: str,
+              input_msa_paths: List[str],
+              input_pdb_paths: List[str],
               msa_output_dir: str,
               is_prokaryote: bool = False) -> pipeline.FeatureDict:
     """Runs alignment tools on the input sequences and creates features."""
     with open(input_fasta_path) as f:
       input_fasta_str = f.read()
     input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
+    if input_msa_paths is None:
+      input_msa_paths = [None for _ in range(len(input_seqs))]
+    if input_pdb_paths is None:
+      input_pdb_paths = [None for _ in range(len(input_seqs))]
 
     chain_id_map = _make_chain_id_map(sequences=input_seqs,
                                       descriptions=input_descs)
@@ -261,7 +266,7 @@ class DataPipeline:
     all_chain_features = {}
     sequence_features = {}
     is_homomer_or_monomer = len(set(input_seqs)) == 1
-    for chain_id, fasta_chain in chain_id_map.items():
+    for i, (chain_id, fasta_chain) in enumerate(chain_id_map.items()):
       if fasta_chain.sequence in sequence_features:
         all_chain_features[chain_id] = copy.deepcopy(
             sequence_features[fasta_chain.sequence])
@@ -270,7 +275,8 @@ class DataPipeline:
           chain_id=chain_id,
           sequence=fasta_chain.sequence,
           description=fasta_chain.description,
-          input_msa_path=input_msa_path,
+          input_msa_path=input_msa_paths[i],
+          input_pdb_path=input_pdb_paths[i],
           msa_output_dir=msa_output_dir,
           is_homomer_or_monomer=is_homomer_or_monomer)
 

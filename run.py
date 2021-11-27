@@ -21,7 +21,7 @@ import pickle
 import random
 import sys
 import time
-from typing import Dict, Union, Optional
+from typing import Dict, Union, Optional, List
 
 import jax
 from absl import app
@@ -129,8 +129,8 @@ flags.DEFINE_boolean("use_templates", True, "Whether to use PDB database")
 flags.DEFINE_boolean("use_msa", True, "Whether to use MSA")
 flags.DEFINE_boolean("remove_msa_for_template_aligned", False, \
                     'Remove MSA information for template aligned region')
-flags.DEFINE_string("msa_path", None, "User input MSA")
-flags.DEFINE_string("pdb_path", None, "User input structure")
+flags.DEFINE_list("msa_path", None, "User input MSA")
+flags.DEFINE_list("pdb_path", None, "User input structure")
 flags.DEFINE_boolean("is_multimer", False, "Whether to use the multimer modeling hack")
 flags.DEFINE_integer("num_recycle", 3, "The number of recycling")
 flags.DEFINE_boolean("feature_only", False, "Whether to generate features.pkl only")
@@ -174,7 +174,8 @@ def remove_msa_for_template_aligned_regions(feature_dict):
 def predict_structure(
     fasta_path: str,
     fasta_name: str,
-    msa_path: str,
+    msa_path: Union[str, List[str]],
+    pdb_path: Union[str, List[str]],
     output_dir_base: str,
     data_pipeline: Union[pipeline.DataPipeline, pipeline_multimer.DataPipeline],
     model_runners: Dict[str, model.RunModel],
@@ -202,16 +203,17 @@ def predict_structure(
         with open(features_output_path, 'rb') as f:
             feature_dict = pickle.load(f)
     else:
-        # TODO: need to add input_msa_path
         if is_prokaryote is None:
             feature_dict = data_pipeline.process(
                 input_fasta_path=fasta_path,
                 input_msa_path=msa_path,
+                input_pdb_path=pdb_path,
                 msa_output_dir=msa_output_dir)
         else:
             feature_dict = data_pipeline.process(
                 input_fasta_path=fasta_path,
                 input_msa_path=msa_path,
+                input_pdb_path=pdb_path,
                 msa_output_dir=msa_output_dir,
                 is_prokaryote=is_prokaryote)
 
@@ -368,9 +370,33 @@ def main(argv):
     _check_flag('uniprot_database_path', 'model_preset',
                 should_be_set=run_multimer_system)
 
+    if FLAGS.msa_path:
+        msa_path = []
+        for pth in FLAGS.msa_path:
+            if os.path.exists(pth):
+                msa_path.append(pth)
+            else:
+                msa_path.append(None)
+    else:
+        msa_path = None
+    if not run_multimer_system and (msa_path is not None):
+        msa_path = msa_path[0]
+
+    if FLAGS.pdb_path:
+        pdb_path = []
+        for pth in FLAGS.pdb_path:
+            if os.path.exists(pth):
+                pdb_path.append(pth)
+            else:
+                pdb_path.append(None)
+    else:
+        pdb_path = None
+    if not run_multimer_system and (pdb_path is not None):
+        pdb_path = pdb_path[0]
+
     if FLAGS.is_multimer:
         FLAGS.use_templates = False
-        if FLAGS.use_msa and FLAGS.msa_path is None:
+        if FLAGS.use_msa and msa_path is None:
             raise ValueError("The Multimer modeling hack requires an MSA input")
         if run_multimer_system:
             raise ValueError("The Multimer modeling hack cannot be run with --model_preset=multimer")
@@ -480,7 +506,8 @@ def main(argv):
     predict_structure(
             fasta_path=FLAGS.fasta_path,
             fasta_name=fasta_name,
-            msa_path=FLAGS.msa_path,
+            msa_path=msa_path,
+            pdb_path=pdb_path,
             output_dir_base=FLAGS.output_dir,
             data_pipeline=data_pipeline,
             model_runners=model_runners,
