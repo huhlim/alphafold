@@ -124,13 +124,14 @@ flags.DEFINE_boolean('use_precomputed_msas', True, 'Whether to read MSAs that '
 # custom arguments
 flags.DEFINE_boolean('jit', True, 'compile using jax.jit')
 flags.DEFINE_float("max_sequence_identity", -1., "Maximum sequence identity for template prefilter")
-flags.DEFINE_boolean("use_relax", True, "Wheter to use AMBER local energy minimization")
-flags.DEFINE_boolean("use_templates", True, "Wheter to use PDB database")
-flags.DEFINE_boolean("use_msa", True, "Wheter to use MSA")
+flags.DEFINE_boolean("use_relax", True, "Whether to use AMBER local energy minimization")
+flags.DEFINE_boolean("use_templates", True, "Whether to use PDB database")
+flags.DEFINE_boolean("use_msa", True, "Whether to use MSA")
 flags.DEFINE_boolean("remove_msa_for_template_aligned", False, \
                     'Remove MSA information for template aligned region')
 flags.DEFINE_string("msa_path", None, "User input MSA")
-flags.DEFINE_string("custom_templates", None, "User input templates")
+flags.DEFINE_string("pdb_path", None, "User input structure")
+flags.DEFINE_boolean("is_multimer", False, "Whether to use the multimer modeling hack")
 flags.DEFINE_integer("num_recycle", 3, "The number of recycling")
 flags.DEFINE_boolean("feature_only", False, "Whether to generate features.pkl only")
 
@@ -153,12 +154,20 @@ def _check_flag(flag_name: str,
 
 def remove_msa_for_template_aligned_regions(feature_dict):
     mask = np.zeros(feature_dict['seq_length'][0], dtype=bool)
-    for templ in feature_dict['template_sequence']:
-        for i,aa in enumerate(templ.decode("utf-8")):
-            if aa != '-':
-                mask[i] = True
+    if 'template_sequence' in feature_dict: # monomer
+        for templ in feature_dict['template_sequence']:
+            for i,aa in enumerate(templ.decode("utf-8")):
+                if aa != '-':
+                    mask[i] = True
+    else:   # multimer
+        raise NotImplementedError
+        for templ in feature_dict['template_aatype']:
+            mask[templ != 21] = True
     #
-    feature_dict['deletion_matrix_int'][:,mask] = 0
+    if 'deletion_matrix_int' in feature_dict:
+        feature_dict['deletion_matrix_int'][:,mask] = 0
+    else:
+        feature_dict['deletion_matrix'][:,mask] = 0
     feature_dict['msa'][:,mask] = 21
     return feature_dict
 
@@ -359,14 +368,17 @@ def main(argv):
     _check_flag('uniprot_database_path', 'model_preset',
                 should_be_set=run_multimer_system)
 
+    if FLAGS.is_multimer:
+        FLAGS.use_templates = False
+        if FLAGS.use_msa and FLAGS.msa_path is None:
+            raise ValueError("The Multimer modeling hack requires an MSA input")
+        if run_multimer_system:
+            raise ValueError("The Multimer modeling hack cannot be run with --model_preset=multimer")
+
     if FLAGS.model_preset == 'monomer_casp14':
         num_ensemble = 8
     else:
         num_ensemble = 1
-    #
-    if FLAGS.custom_templates is not None:
-        FLAGS.template_mmcif_dir = FLAGS.custom_templates
-        FLAGS.pdb70_database_path = "%s/pdb70"%FLAGS.custom_templates
     
     # PREPARE for running prediction
     fasta_name = pathlib.Path(FLAGS.fasta_path).stem
@@ -419,7 +431,8 @@ def main(argv):
         template_featurizer=template_featurizer,
         use_small_bfd=use_small_bfd,
         use_msa=FLAGS.use_msa,
-        use_precomputed_msas=FLAGS.use_precomputed_msas)
+        use_precomputed_msas=FLAGS.use_precomputed_msas,
+        is_multimer=FLAGS.is_multimer)
     if run_multimer_system:
         data_pipeline = pipeline_multimer.DataPipeline(
             monomer_data_pipeline=monomer_data_pipeline,

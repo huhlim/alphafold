@@ -583,6 +583,7 @@ def parse_hmmsearch_a3m(query_sequence: str,
     parsed_a3m = parsed_a3m[1:]
 
   indices_query = _get_indices(query_sequence, start=0)
+  num_res = len(query_sequence)
 
   hits = []
   for i, (hit_sequence, hit_description) in enumerate(parsed_a3m, start=1):
@@ -592,12 +593,14 @@ def parse_hmmsearch_a3m(query_sequence: str,
     # Aligned columns are only the match states.
     aligned_cols = sum([r.isupper() and r != '-' for r in hit_sequence])
     indices_hit = _get_indices(hit_sequence, start=metadata.start - 1)
+    sequence_identity = aligned_cols / num_res * 100.
 
     hit = TemplateHit(
         index=i,
         name=f'{metadata.pdb_id}_{metadata.chain}',
         aligned_cols=aligned_cols,
         sum_probs=None,
+        sequence_identity=sequence_identity,
         query=query_sequence,
         hit_sequence=hit_sequence.upper(),
         indices_query=indices_query,

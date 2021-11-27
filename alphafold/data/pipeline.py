@@ -106,8 +106,10 @@ def split_chain(num_res_per_chain, sequence_features):
   PARAM_CHAIN_BREAK = 100
   #
   L_prev = 0
+  sequence_features['asym_id'] = np.ones_like(sequence_features['residue_index'])
   for L in num_res_per_chain[:-1]:
     sequence_features['residue_index'][L_prev+L:] += PARAM_CHAIN_BREAK
+    sequence_features['asym_id'][L_PREV+L:] += 1
     L_prev += L
 
 class DataPipeline:
@@ -127,11 +129,14 @@ class DataPipeline:
                use_msa: bool = True,
                mgnify_max_hits: int = 501,
                uniref_max_hits: int = 10000,
-               use_precomputed_msas: bool = False):
+               use_precomputed_msas: bool = False,
+               is_multimer: bool = False,
+               ):
     """Initializes the data pipeline."""
     self._use_small_bfd = use_small_bfd
     self._use_msa = use_msa
     self._use_template = (template_featurizer is not None)
+    self._is_multimer = is_multimer
     #
     self.jackhmmer_uniref90_runner = jackhmmer.Jackhmmer(
         binary_path=jackhmmer_binary_path,
@@ -159,7 +164,7 @@ class DataPipeline:
           msa_output_dir: str) -> FeatureDict:
 
     # sequence-based features
-    input_sequence, sequence_features = \
+    input_sequence, input_seqs, sequence_features = \
             self._process_input_fasta(input_fasta_path)
 
     # MSA-based features
@@ -174,13 +179,12 @@ class DataPipeline:
     else:
       msa_features = self._process_null_msa(input_sequence, msa_output_dir)
       msa_for_templates = None
-    #
-    if self._use_template and msa_for_templates is None:
-      msa_for_templates = \
-          self._process_search_msa_for_templates(input_fasta_path, msa_output_dir)
 
     # template structure-based features
     if self._use_template:
+      if msa_for_templates is None:
+        msa_for_templates = \
+          self._process_search_msa_for_templates(input_fasta_path, msa_output_dir)
       templates_features = \
           self._process_search_templates(input_sequence, msa_for_templates, msa_output_dir)
     else:
@@ -193,18 +197,28 @@ class DataPipeline:
       input_fasta_str = f.read()
     input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
     if len(input_seqs) != 1:
-      raise ValueError(
-          f'More than one input sequence found in {input_fasta_path}.')
-    input_sequence = input_seqs[0]
-    input_description = input_descs[0]
-    num_res = len(input_sequence)
+      if not self._is_multimer:
+        raise ValueError(
+            f'More than one input sequence found in {input_fasta_path}.')
+      else:
+        input_sequence = ''.join(input_seqs)
+        input_description = ''.join(input_descs)
+        num_res = len(input_sequence)
+        num_res_per_chain = [len(seq) for seq in input_seqs]
+    else:
+      input_sequence = input_seqs[0]
+      input_description = input_descs[0]
+      num_res = len(input_sequence)
 
     sequence_features = make_sequence_features(
         sequence=input_sequence,
         description=input_description,
         num_res=num_res)
 
-    return input_sequence, sequence_features
+    if self._is_multimer:
+      split_chain(num_res_per_chain, sequence_features)
+
+    return input_sequence, input_seqs, sequence_features
   
   def _process_search_msa(self, input_fasta_path, msa_output_dir):
     uniref90_out_path = os.path.join(msa_output_dir, 'uniref90_hits.sto')
@@ -252,8 +266,17 @@ class DataPipeline:
                  msa_features['num_alignments'][0])
     return msa_features, msa_for_templates
 
-  def _process_search_msa_for_templates(self, input_fasta_path, msa_output_dir):
-    uniref90_out_path = os.path.join(msa_output_dir, 'uniref90_hits.sto')
+  def _process_search_msa_for_templates(self, input_fasta_path, msa_output_dir, chain_id=None):
+    if chain_id is None:
+      uniref90_out_path = os.path.join(msa_output_dir, 'uniref90_hits.sto')
+    else:
+      input_fasta_chain_path = os.path.join(msa_output_dir, "input_seq_%d.fa"%chain_id)
+      with open(input_fasta_chain_path, 'wt') as fout:
+        fout.write(">Query_%d"%chain_id)
+        fout.write(input_fasta_path)
+      input_fasta_path = input_fasta_chain_path
+
+      uniref90_out_path = os.path.join(msa_output_dir, 'uniref90_hits_%d.sto'%chain_id)
     jackhmmer_uniref90_result = run_msa_tool(
         self.jackhmmer_uniref90_runner, input_fasta_path, uniref90_out_path,
         'sto', self.use_precomputed_msas)

@@ -741,6 +741,10 @@ def _process_single_hit(
   template_sequence = hit.hit_sequence.replace('-', '')
 
   cif_path = os.path.join(mmcif_dir, hit_pdb_code + '.cif')
+  if not os.path.exists(cif_path):
+    msg = f'failed to find {cif_path}'
+    logging.info(msg)
+    return SingleHitResult(features=None, error=msg, warning=None)
   logging.debug('Reading PDB entry from %s. Query: %s, template: %s', cif_path,
                 query_sequence, template_sequence)
   # Fail if we can't find the mmCIF file.
