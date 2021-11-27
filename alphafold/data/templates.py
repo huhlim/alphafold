@@ -24,6 +24,7 @@ from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 from absl import logging
 from alphafold.common import residue_constants
+from alphafold.common import protein
 from alphafold.data import mmcif_parsing
 from alphafold.data import parsers
 from alphafold.data.tools import kalign
@@ -1047,6 +1048,76 @@ def make_null_template_features(query_sequence):
           (num_templates, num_res, residue_constants.atom_type_num, 3), np.float32),
       'template_domain_names': np.zeros((num_templates), np.object),
       'template_sequence': np.zeros((num_templates), np.object),
-      'template_sum_probs': np.zeros((num_templates), dtype=np.float32)
+      'template_sum_probs': np.zeros((num_templates, 1), dtype=np.float32)
   }
   return template_features
+
+class ConformationInfoExactractor():
+    def __init__(self, kalign_binary_path: str):
+        self._kalign_binary_path = kalign_binary_path
+    def extract(self, query_sequence: str, pdb_fn: str) -> Dict[str, Any]:
+        # read PDB file -> atom_positions, atom_mask, and aatype
+        with open(pdb_fn) as fp:
+            pdb_str = fp.read()
+            prot = protein.from_pdb_string(pdb_str)
+        template_sequence = [residue_constants.restypes_with_x[i] for i in prot.aatype]
+        template_sequence = ''.join(template_sequence)
+
+        # align conformation's sequence against query_sequence
+        try:
+            aligner = kalign.Kalign(binary_path=self._kalign_binary_path)
+        except:
+            raise RuntimeError("Failed to align input_pdb, %s", pdb_fn)
+
+        parsed_a3m = parsers.parse_a3m(
+                aligner.align([query_sequence, template_sequence]))
+        #
+        query_to_template_mapping = {}
+        query_index = -1
+        template_index = -1
+        num_same = 0
+        for query_aa, template_aa in zip(*parsed_a3m.sequences):
+            if query_aa != '-':
+                query_index += 1
+            if template_aa != '-':
+                template_index += 1
+            if query_aa != '-' and template_aa != '-':
+                query_to_template_mapping[query_index] = template_index
+                if query_aa == template_aa:
+                    num_same += 1
+        sequence_identity = num_same / len(query_sequence) * 100.
+        logging.info("Input conformation: %s (sequence identity= %5.1f)", pdb_fn, sequence_identity)
+        #
+        # copying atom position information
+        atom_positions = []
+        atom_mask = []
+        output_sequence = []
+        for _ in query_sequence:
+            atom_positions.append(np.zeros((residue_constants.atom_type_num, 3)))
+            atom_mask.append(np.zeros(residue_constants.atom_type_num))
+            output_sequence.append('-')
+        #
+        for k, v in query_to_template_mapping.items():
+            atom_positions[k] = prot.atom_positions[v]
+            atom_mask[k] = prot.atom_mask[v]
+            output_sequence[k] = template_sequence[v]
+        #
+        output_sequence = ''.join(output_sequence)
+        template_aatype = residue_constants.sequence_to_onehot(
+                output_sequence, residue_constants.HHBLITS_AA_TO_ID)
+        #
+        return {'template_all_atom_positions': np.array(atom_positions),
+                'template_all_atom_masks': np.array(atom_mask),
+                'template_sequence': output_sequence.encode(),
+                'template_aatype': np.array(template_aatype),
+                'template_domain_names': pdb_fn.encode(),
+                'template_sum_probs': [float(num_same)],
+                }
+
+def combine_template_features(templates_features, conf_features):
+    out_features = {}
+    for name in TEMPLATE_FEATURES:
+        out_features[name] = np.concatenate([
+            [conf_features[name]], 
+            templates_features[name]])
+    return out_features

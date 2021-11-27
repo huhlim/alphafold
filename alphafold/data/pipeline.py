@@ -109,7 +109,7 @@ def split_chain(num_res_per_chain, sequence_features):
   sequence_features['asym_id'] = np.ones_like(sequence_features['residue_index'])
   for L in num_res_per_chain[:-1]:
     sequence_features['residue_index'][L_prev+L:] += PARAM_CHAIN_BREAK
-    sequence_features['asym_id'][L_PREV+L:] += 1
+    sequence_features['asym_id'][L_prev+L:] += 1
     L_prev += L
 
 class DataPipeline:
@@ -125,6 +125,7 @@ class DataPipeline:
                small_bfd_database_path: Optional[str],
                template_searcher: TemplateSearcher,
                template_featurizer: templates.TemplateHitFeaturizer,
+               template_conformation: templates.ConformationInfoExactractor,
                use_small_bfd: bool,
                use_msa: bool = True,
                mgnify_max_hits: int = 501,
@@ -154,6 +155,7 @@ class DataPipeline:
         database_path=mgnify_database_path)
     self.template_searcher = template_searcher
     self.template_featurizer = template_featurizer
+    self.template_conformation = template_conformation
     self.mgnify_max_hits = mgnify_max_hits
     self.uniref_max_hits = uniref_max_hits
     self.use_precomputed_msas = use_precomputed_msas
@@ -190,6 +192,11 @@ class DataPipeline:
           self._process_search_templates(input_sequence, msa_for_templates, msa_output_dir)
     else:
       templates_features = self._process_null_templates(input_sequence)
+
+    # combine template- and conformation-based features
+    if self.template_conformation is not None and input_pdb_path is not None:
+        conf_features = self.template_conformation.extract(input_sequence, input_pdb_path)
+        templates_features = templates.combine_template_features(templates_features, conf_features)
     
     return {**sequence_features, **msa_features, **templates_features}
 

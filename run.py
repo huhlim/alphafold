@@ -131,7 +131,7 @@ flags.DEFINE_boolean("remove_msa_for_template_aligned", False, \
                     'Remove MSA information for template aligned region')
 flags.DEFINE_list("msa_path", None, "User input MSA")
 flags.DEFINE_list("pdb_path", None, "User input structure")
-flags.DEFINE_boolean("is_multimer", False, "Whether to use the multimer modeling hack")
+flags.DEFINE_boolean("multimer", False, "Whether to use the multimer modeling hack")
 flags.DEFINE_integer("num_recycle", 3, "The number of recycling")
 flags.DEFINE_boolean("feature_only", False, "Whether to generate features.pkl only")
 
@@ -394,7 +394,7 @@ def main(argv):
     if not run_multimer_system and (pdb_path is not None):
         pdb_path = pdb_path[0]
 
-    if FLAGS.is_multimer:
+    if FLAGS.multimer:
         FLAGS.use_templates = False
         if FLAGS.use_msa and msa_path is None:
             raise ValueError("The Multimer modeling hack requires an MSA input")
@@ -444,6 +444,13 @@ def main(argv):
         template_searcher = None
         template_featurizer = None
 
+    # Input Conformation
+    if pdb_path is None:
+        conformation_info_extractor = None
+    else:
+        conformation_info_extractor = templates.ConformationInfoExactractor(
+                kalign_binary_path=FLAGS.kalign_binary_path)
+
     # PIPELINE
     monomer_data_pipeline = pipeline.DataPipeline(
         jackhmmer_binary_path=FLAGS.jackhmmer_binary_path,
@@ -455,10 +462,11 @@ def main(argv):
         small_bfd_database_path=FLAGS.small_bfd_database_path,
         template_searcher=template_searcher,
         template_featurizer=template_featurizer,
+        template_conformation=conformation_info_extractor,
         use_small_bfd=use_small_bfd,
         use_msa=FLAGS.use_msa,
         use_precomputed_msas=FLAGS.use_precomputed_msas,
-        is_multimer=FLAGS.is_multimer)
+        is_multimer=FLAGS.multimer)
     if run_multimer_system:
         data_pipeline = pipeline_multimer.DataPipeline(
             monomer_data_pipeline=monomer_data_pipeline,
