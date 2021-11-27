@@ -71,6 +71,7 @@ class RunModel:
                ):
     self.config = config
     self.params = params
+    self.jit_compile = jit_compile
     self.multimer_mode = config.model.global_config.multimer_mode
 
     if self.multimer_mode:
@@ -130,7 +131,10 @@ class RunModel:
     """
 
     if self.multimer_mode:
-      return raw_features
+      if self.jit_compile:
+        return raw_features
+      else:
+        return {k: jax.numpy.array(v) for k,v  in raw_features.items()}
 
     # Single-chain mode.
     if isinstance(raw_features, dict):
