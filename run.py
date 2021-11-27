@@ -243,7 +243,7 @@ def predict_structure(
         if os.path.exists(final_output_path) and os.path.exists(result_output_path):
             # skip running this model and re-use pre-existing results.
             with open(result_output_path, 'rb') as fp:
-                prediction_result = pickle.load(f)
+                prediction_result = pickle.load(fp)
                 ranking_confidences[model_name] = prediction_result['ranking_confidence']
 
             with open(final_output_path) as fp:

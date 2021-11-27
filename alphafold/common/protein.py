@@ -263,7 +263,7 @@ def from_prediction(
     return arr[0] if remove_leading_feature_dimension else arr
 
   if 'asym_id' in features:
-    chain_index = _maybe_remove_leading_dim(features['asym_id'])
+    chain_index = _maybe_remove_leading_dim(np.array(features['asym_id']))
   else:
     chain_index = np.zeros_like(_maybe_remove_leading_dim(features['aatype']))
 
