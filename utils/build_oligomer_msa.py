@@ -84,10 +84,13 @@ def main():
     msa_s = []
     for n,msa_home in zip(arg.n_mol, arg.msa_home_s):
         msa_home = os.path.abspath(msa_home)
-        if msa_home.split("/")[-1] != 'msas':
+        if os.path.isdir(msa_home) and msa_home.split("/")[-1] != 'msas':
             msa_home += '/msas'
         sys.stderr.write("Reading ... %s\n"%msa_home)
-        msa = read_msa(msa_home)
+        if os.path.isdir(msa_home):
+            msa = read_msa(msa_home)
+        else:
+            msa = read_a3m(msa_home)
         if n > 1:
             msa = [[name,seq*n] for name,seq in msa]
         msa_s.append(msa)
