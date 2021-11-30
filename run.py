@@ -312,7 +312,6 @@ def predict_structure(
             # Save the relaxed PDB.
             with open(relaxed_output_path, 'w') as f:
                 f.write(relaxed_pdb_str)
-        return
 
     # Rank by model confidence and write out relaxed PDBs in rank order.
     ranked_order = []
