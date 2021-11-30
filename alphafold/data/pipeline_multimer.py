@@ -174,6 +174,7 @@ class DataPipeline:
                monomer_data_pipeline: pipeline.DataPipeline,
                jackhmmer_binary_path: str,
                uniprot_database_path: str,
+               n_cpu: int = 8,
                max_uniprot_hits: int = 50000,
                use_precomputed_msas: bool = False):
     """Initializes the data pipeline.
@@ -190,7 +191,7 @@ class DataPipeline:
     self._monomer_data_pipeline = monomer_data_pipeline
     self._uniprot_msa_runner = jackhmmer.Jackhmmer(
         binary_path=jackhmmer_binary_path,
-        database_path=uniprot_database_path)
+        database_path=uniprot_database_path, n_cpu=n_cpu)
     self._max_uniprot_hits = max_uniprot_hits
     self.use_precomputed_msas = use_precomputed_msas
 
@@ -200,6 +201,7 @@ class DataPipeline:
       sequence: str,
       description: str,
       input_msa_path: str,
+      input_pdb_path: str,
       msa_output_dir: str,
       is_homomer_or_monomer: bool) -> pipeline.FeatureDict:
     """Runs the monomer pipeline on a single chain."""
@@ -213,6 +215,7 @@ class DataPipeline:
       chain_features = self._monomer_data_pipeline.process(
           input_fasta_path=chain_fasta_path,
           input_msa_path=input_msa_path,
+          input_pdb_path=input_pdb_path,
           msa_output_dir=chain_msa_output_dir)
 
       # We only construct the pairing features if there are 2 or more unique
@@ -242,18 +245,18 @@ class DataPipeline:
 
   def process(self,
               input_fasta_path: str,
-              input_msa_paths: List[str],
-              input_pdb_paths: List[str],
+              input_msa_path: List[str],
+              input_pdb_path: List[str],
               msa_output_dir: str,
               is_prokaryote: bool = False) -> pipeline.FeatureDict:
     """Runs alignment tools on the input sequences and creates features."""
     with open(input_fasta_path) as f:
       input_fasta_str = f.read()
     input_seqs, input_descs = parsers.parse_fasta(input_fasta_str)
-    if input_msa_paths is None:
-      input_msa_paths = [None for _ in range(len(input_seqs))]
-    if input_pdb_paths is None:
-      input_pdb_paths = [None for _ in range(len(input_seqs))]
+    if input_msa_path is None:
+      input_msa_path = [None for _ in range(len(input_seqs))]
+    if input_pdb_path is None:
+      input_pdb_path = [None for _ in range(len(input_seqs))]
 
     chain_id_map = _make_chain_id_map(sequences=input_seqs,
                                       descriptions=input_descs)
@@ -275,8 +278,8 @@ class DataPipeline:
           chain_id=chain_id,
           sequence=fasta_chain.sequence,
           description=fasta_chain.description,
-          input_msa_path=input_msa_paths[i],
-          input_pdb_path=input_pdb_paths[i],
+          input_msa_path=input_msa_path[i],
+          input_pdb_path=input_pdb_path[i],
           msa_output_dir=msa_output_dir,
           is_homomer_or_monomer=is_homomer_or_monomer)
 

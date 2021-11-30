@@ -262,10 +262,15 @@ def from_prediction(
   def _maybe_remove_leading_dim(arr: np.ndarray) -> np.ndarray:
     return arr[0] if remove_leading_feature_dimension else arr
 
-  if 'asym_id' in features:
-    chain_index = _maybe_remove_leading_dim(np.array(features['asym_id']))
+  if 'for_pdb_record' in features:
+    chain_index = np.array(features['for_pdb_record']['chain_index'])
+    residue_number = np.array(features['for_pdb_record']['residue_number'])
   else:
-    chain_index = np.zeros_like(_maybe_remove_leading_dim(features['aatype']))
+    if 'asym_id' in features:
+      chain_index = _maybe_remove_leading_dim(np.array(features['asym_id']))
+    else:
+      chain_index = np.zeros_like(_maybe_remove_leading_dim(features['aatype']))
+    residue_number = _maybe_remove_leading_dim(features['residue_index']) + 1 
 
   if b_factors is None:
     b_factors = np.zeros_like(fold_output['final_atom_mask'])
@@ -274,6 +279,6 @@ def from_prediction(
       aatype=_maybe_remove_leading_dim(features['aatype']),
       atom_positions=fold_output['final_atom_positions'],
       atom_mask=fold_output['final_atom_mask'],
-      residue_index=_maybe_remove_leading_dim(features['residue_index']) + 1,
+      residue_index=residue_number,
       chain_index=chain_index,
       b_factors=b_factors)

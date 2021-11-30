@@ -102,14 +102,24 @@ def run_msa_tool(msa_runner, input_fasta_path: str, msa_out_path: str,
       result = {msa_format: f.read()}
   return result
 
+def append_sequence_info(sequence_features, input_seqs):
+    for_pdb_record = {}
+    for_pdb_record['residue_number'] = []
+    for_pdb_record['chain_index'] = []
+    for chain_index, input_seq in enumerate(input_seqs):
+        for residue_index in range(len(input_seq)):
+            for_pdb_record['residue_number'].append(residue_index+1)
+            for_pdb_record['chain_index'].append(chain_index)
+    for key in for_pdb_record:
+        for_pdb_record[key] = np.array(for_pdb_record[key])
+    sequence_features['for_pdb_record'] = for_pdb_record
+
 def split_chain(num_res_per_chain, sequence_features):
-  PARAM_CHAIN_BREAK = 100
+  PARAM_CHAIN_BREAK = 200
   #
   L_prev = 0
-  sequence_features['asym_id'] = np.ones_like(sequence_features['residue_index'])
   for L in num_res_per_chain[:-1]:
     sequence_features['residue_index'][L_prev+L:] += PARAM_CHAIN_BREAK
-    sequence_features['asym_id'][L_prev+L:] += 1
     L_prev += L
 
 class DataPipeline:
@@ -128,6 +138,7 @@ class DataPipeline:
                template_conformation: templates.ConformationInfoExactractor,
                use_small_bfd: bool,
                use_msa: bool = True,
+               n_cpu: int = 8,
                mgnify_max_hits: int = 501,
                uniref_max_hits: int = 10000,
                use_precomputed_msas: bool = False,
@@ -141,18 +152,18 @@ class DataPipeline:
     #
     self.jackhmmer_uniref90_runner = jackhmmer.Jackhmmer(
         binary_path=jackhmmer_binary_path,
-        database_path=uniref90_database_path)
+        database_path=uniref90_database_path, n_cpu=n_cpu)
     if use_small_bfd:
       self.jackhmmer_small_bfd_runner = jackhmmer.Jackhmmer(
           binary_path=jackhmmer_binary_path,
-          database_path=small_bfd_database_path)
+          database_path=small_bfd_database_path, n_cpu=n_cpu)
     else:
       self.hhblits_bfd_uniclust_runner = hhblits.HHBlits(
           binary_path=hhblits_binary_path,
-          databases=[bfd_database_path, uniclust30_database_path])
+          databases=[bfd_database_path, uniclust30_database_path], n_cpu=n_cpu)
     self.jackhmmer_mgnify_runner = jackhmmer.Jackhmmer(
         binary_path=jackhmmer_binary_path,
-        database_path=mgnify_database_path)
+        database_path=mgnify_database_path, n_cpu=n_cpu)
     self.template_searcher = template_searcher
     self.template_featurizer = template_featurizer
     self.template_conformation = template_conformation
@@ -222,6 +233,7 @@ class DataPipeline:
         sequence=input_sequence,
         description=input_description,
         num_res=num_res)
+    append_sequence_info(sequence_features, input_seqs)
 
     if self._is_multimer:
       split_chain(num_res_per_chain, sequence_features)

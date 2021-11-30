@@ -122,6 +122,7 @@ flags.DEFINE_boolean('use_precomputed_msas', True, 'Whether to read MSAs that '
                      'if the sequence, database or configuration have changed.')
 
 # custom arguments
+flags.DEFINE_integer("cpu", 8, 'Number of processors for sequence searches')
 flags.DEFINE_boolean('jit', True, 'compile using jax.jit')
 flags.DEFINE_float("max_sequence_identity", -1., "Maximum sequence identity for template prefilter")
 flags.DEFINE_boolean("use_relax", True, "Whether to use AMBER local energy minimization")
@@ -170,6 +171,11 @@ def remove_msa_for_template_aligned_regions(feature_dict):
         feature_dict['deletion_matrix'][:,mask] = 0
     feature_dict['msa'][:,mask] = 21
     return feature_dict
+
+def retrieve_custom_features(processed_feature_dict, feature_dict):
+    for name in ['for_pdb_record']:
+        if name in feature_dict:
+            processed_feature_dict[name] = feature_dict[name]
 
 def predict_structure(
     fasta_path: str,
@@ -263,6 +269,9 @@ def predict_structure(
         processed_feature_dict = model_runner.process_features(
             feature_dict, random_seed=model_random_seed)
         timings[f'process_features_{model_name}'] = time.time() - t_0
+        processed_feat_path = os.path.join(output_dir, f"features_{model_name}.pkl")
+        with open(processed_feat_path, 'wb') as f:
+            pickle.dump(processed_feature_dict, f, protocol=4)
 
         t_0 = time.time()
         prediction_result = model_runner.predict(processed_feature_dict,
@@ -279,6 +288,9 @@ def predict_structure(
         # Save the model outputs.
         with open(result_output_path, 'wb') as f:
             pickle.dump(prediction_result, f, protocol=4)
+
+        # retrieve custom features for outputs
+        retrieve_custom_features(processed_feature_dict, feature_dict)
 
         # Add the predicted LDDT in the b-factor column.
         # Note that higher predicted LDDT value means higher model confidence.
@@ -304,6 +316,7 @@ def predict_structure(
             # Save the relaxed PDB.
             with open(relaxed_output_path, 'w') as f:
                 f.write(relaxed_pdb_str)
+        return
 
     # Rank by model confidence and write out relaxed PDBs in rank order.
     ranked_order = []
@@ -466,13 +479,15 @@ def main(argv):
         use_small_bfd=use_small_bfd,
         use_msa=FLAGS.use_msa,
         use_precomputed_msas=FLAGS.use_precomputed_msas,
-        is_multimer=FLAGS.multimer)
+        is_multimer=FLAGS.multimer, 
+        n_cpu=FLAGS.cpu)
     if run_multimer_system:
         data_pipeline = pipeline_multimer.DataPipeline(
             monomer_data_pipeline=monomer_data_pipeline,
             jackhmmer_binary_path=FLAGS.jackhmmer_binary_path,
             uniprot_database_path=FLAGS.uniprot_database_path,
-            use_precomputed_msas=FLAGS.use_precomputed_msas)
+            use_precomputed_msas=FLAGS.use_precomputed_msas,
+            n_cpu=FLAGS.cpu)
     else:
         data_pipeline = monomer_data_pipeline
 
