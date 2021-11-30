@@ -154,17 +154,13 @@ def _check_flag(flag_name: str,
                          f'"--{other_flag_name}={FLAGS[other_flag_name].value}".')
 
 def remove_msa_for_template_aligned_regions(feature_dict):
-    mask = np.zeros(feature_dict['seq_length'][0], dtype=bool)
-    if 'template_sequence' in feature_dict: # monomer
-        for templ in feature_dict['template_sequence']:
-            for i,aa in enumerate(templ.decode("utf-8")):
-                if aa != '-':
-                    mask[i] = True
-    else:   # multimer
-        raise NotImplementedError
-        for templ in feature_dict['template_aatype']:
-            mask[templ != 21] = True
+    if 'template_all_atom_masks' in feature_dict:
+        mask = feature_dict['template_all_atom_masks']
+    elif 'template_all_atom_mask' in feature_dict:
+        mask = feature_dict['template_all_atom_mask']
+    mask = (mask.sum(axis=(0,2)) > 0)
     #
+    # need to check further for multimer_mode
     if 'deletion_matrix_int' in feature_dict:
         feature_dict['deletion_matrix_int'][:,mask] = 0
     else:
