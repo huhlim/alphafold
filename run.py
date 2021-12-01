@@ -130,6 +130,9 @@ flags.DEFINE_boolean("use_templates", True, "Whether to use PDB database")
 flags.DEFINE_boolean("use_msa", True, "Whether to use MSA")
 flags.DEFINE_boolean("remove_msa_for_template_aligned", False, \
                     'Remove MSA information for template aligned region')
+flags.DEFINE_integer("max_msa_clusters", None, 'Number of maximum MSA clusters')
+flags.DEFINE_integer("max_extra_msa", None, 'Number of extra sequences')
+flags.DEFINE_list("model_names", None, "Model configs to be run")
 flags.DEFINE_list("msa_path", None, "User input MSA")
 flags.DEFINE_list("pdb_path", None, "User input structure")
 flags.DEFINE_boolean("multimer", False, "Whether to use the multimer modeling hack")
@@ -265,9 +268,9 @@ def predict_structure(
         processed_feature_dict = model_runner.process_features(
             feature_dict, random_seed=model_random_seed)
         timings[f'process_features_{model_name}'] = time.time() - t_0
-        processed_feat_path = os.path.join(output_dir, f"features_{model_name}.pkl")
-        with open(processed_feat_path, 'wb') as f:
-            pickle.dump(processed_feature_dict, f, protocol=4)
+        #processed_feat_path = os.path.join(output_dir, f"features_{model_name}.pkl")
+        #with open(processed_feat_path, 'wb') as f:
+        #    pickle.dump(processed_feature_dict, f, protocol=4)
 
         t_0 = time.time()
         prediction_result = model_runner.predict(processed_feature_dict,
@@ -486,14 +489,29 @@ def main(argv):
     else:
         data_pipeline = monomer_data_pipeline
 
+    #
+    if FLAGS.model_names is None:
+        FLAGS.model_names = [0, 1, 2, 3, 4]
+    else:
+        FLAGS.model_names = [int(x) for x in FLAGS.model_names]
+
     model_runners = {}
     model_names = config.MODEL_PRESETS[FLAGS.model_preset]
-    for model_name in model_names:
+    for i,model_name in enumerate(model_names):
+        if i not in FLAGS.model_names:
+            continue
         model_config = config.model_config(model_name)
         if run_multimer_system:
             model_config.model.num_ensemble_eval = num_ensemble
         else:
             model_config.data.eval.num_ensemble = num_ensemble
+        #
+        # modify MSA
+        if FLAGS.max_msa_clusters is not None:
+            model_config.data.eval.max_msa_clusters = FLAGS.max_msa_clusters
+        if FLAGS.max_extra_msa is not None:
+            model_config.data.common.max_extra_msa = FLAGS.max_extra_msa
+        #
         model_params = data.get_model_haiku_params(
                 model_name=model_name, data_dir=FLAGS.data_dir)
         model_runner = model.RunModel(model_config, model_params, 

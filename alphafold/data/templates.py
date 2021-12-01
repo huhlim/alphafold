@@ -27,7 +27,7 @@ from alphafold.common import residue_constants
 from alphafold.common import protein
 from alphafold.data import mmcif_parsing
 from alphafold.data import parsers
-from alphafold.data.tools import kalign
+from alphafold.data.tools import kalign, bio_align
 import numpy as np
 
 # Internal import (7716).
@@ -1065,7 +1065,10 @@ class ConformationInfoExactractor():
 
         # align conformation's sequence against query_sequence
         try:
-            aligner = kalign.Kalign(binary_path=self._kalign_binary_path)
+            if len(template_sequence) >= 6:
+                aligner = kalign.Kalign(binary_path=self._kalign_binary_path)
+            else:
+                aligner = bio_align.BioAlign()
         except:
             raise RuntimeError("Failed to align input_pdb, %s", pdb_fn)
 
