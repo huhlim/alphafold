@@ -505,6 +505,7 @@ def main(argv):
             model_config.model.num_ensemble_eval = num_ensemble
         else:
             model_config.data.eval.num_ensemble = num_ensemble
+        model_config.data.common.num_recycle = FLAGS.num_recycle
         #
         # modify MSA
         if FLAGS.max_msa_clusters is not None:
