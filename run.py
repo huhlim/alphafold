@@ -135,8 +135,9 @@ flags.DEFINE_integer("max_extra_msa", None, 'Number of extra sequences')
 flags.DEFINE_list("model_names", None, "Model configs to be run")
 flags.DEFINE_list("msa_path", None, "User input MSA")
 flags.DEFINE_list("pdb_path", None, "User input structure")
-flags.DEFINE_boolean("multimer", False, "Whether to use the multimer modeling hack")
+flags.DEFINE_string("custom_templates", None, "User input templates")
 flags.DEFINE_integer("num_recycle", 3, "The number of recycling")
+flags.DEFINE_boolean("multimer", False, "Whether to use the multimer modeling hack")
 flags.DEFINE_boolean("feature_only", False, "Whether to generate features.pkl only")
 
 FLAGS = flags.FLAGS
@@ -405,6 +406,10 @@ def main(argv):
     if not run_multimer_system and (pdb_path is not None):
         pdb_path = pdb_path[0]
 
+    if FLAGS.custom_templates is not None:
+        FLAGS.template_mmcif_dir = FLAGS.custom_templates
+        FLAGS.pdb70_database_path = "%s/pdb70"%FLAGS.custom_templates
+
     if FLAGS.multimer:
         FLAGS.use_templates = False
         if FLAGS.use_msa and msa_path is None:
@@ -503,9 +508,10 @@ def main(argv):
         model_config = config.model_config(model_name)
         if run_multimer_system:
             model_config.model.num_ensemble_eval = num_ensemble
+            model_config.model.num_recycle = FLAGS.num_recycle
         else:
             model_config.data.eval.num_ensemble = num_ensemble
-        model_config.data.common.num_recycle = FLAGS.num_recycle
+            model_config.data.common.num_recycle = FLAGS.num_recycle
         #
         # modify MSA
         if FLAGS.max_msa_clusters is not None:

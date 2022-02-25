@@ -49,6 +49,8 @@ if os.getenv("CUDA_VISIBLE_DEVICES", "") == "":
     os.environ['JAX_PLATFORM_NAME'] = 'cpu'
     os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
+N_PROC = int(os.getenv("SLURM_CPUS_PER_TASK", 8))
+
 model_names = [
     'model_1',
     'model_2',

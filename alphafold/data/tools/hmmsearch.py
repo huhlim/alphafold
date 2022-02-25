@@ -22,6 +22,7 @@ from absl import logging
 from alphafold.data import parsers
 from alphafold.data.tools import hmmbuild
 from alphafold.data.tools import utils
+from libconfig_af import N_PROC
 # Internal import (7716).
 
 
@@ -89,7 +90,7 @@ class Hmmsearch(object):
       cmd = [
           self.binary_path,
           '--noali',  # Don't include the alignment in stdout.
-          '--cpu', '8'
+          '--cpu', str(N_PROC)
       ]
       # If adding flags, we have to do so before the output and input:
       if self.flags:

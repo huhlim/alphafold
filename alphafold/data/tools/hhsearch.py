@@ -23,6 +23,7 @@ from absl import logging
 
 from alphafold.data import parsers
 from alphafold.data.tools import utils
+from libconfig_af import N_PROC
 # Internal import (7716).
 
 
@@ -79,7 +80,8 @@ class HHSearch:
       cmd = [self.binary_path,
              '-i', input_path,
              '-o', hhr_path,
-             '-maxseq', str(self.maxseq)
+             '-maxseq', str(self.maxseq),
+             '-cpu', str(N_PROC)
              ] + db_cmd
 
       logging.info('Launching subprocess "%s"', ' '.join(cmd))
