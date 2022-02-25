@@ -139,6 +139,10 @@ flags.DEFINE_string("custom_templates", None, "User input templates")
 flags.DEFINE_integer("num_recycle", 3, "The number of recycling")
 flags.DEFINE_boolean("multimer", False, "Whether to use the multimer modeling hack")
 flags.DEFINE_boolean("feature_only", False, "Whether to generate features.pkl only")
+flags.DEFINE_boolean("use_gpu_relax", False, 'Whether to relax on GPU.'
+        'Relax on GPU can be much faster than CPU, so it is '
+        'recommended to enable if possible. GPUs must be available'
+        ' if this setting is enabled.')
 
 FLAGS = flags.FLAGS
 
@@ -421,7 +425,7 @@ def main(argv):
         num_ensemble = 8
     else:
         num_ensemble = 1
-    
+
     # PREPARE for running prediction
     fasta_name = pathlib.Path(FLAGS.fasta_path).stem
     if run_multimer_system:
@@ -535,7 +539,8 @@ def main(argv):
             tolerance=RELAX_ENERGY_TOLERANCE,
             stiffness=RELAX_STIFFNESS,
             exclude_residues=RELAX_EXCLUDE_RESIDUES,
-            max_outer_iterations=RELAX_MAX_OUTER_ITERATIONS)
+            max_outer_iterations=RELAX_MAX_OUTER_ITERATIONS, 
+            use_gpu=FLAGS.use_gpu_relax)
     else:
         amber_relaxer = None
  
