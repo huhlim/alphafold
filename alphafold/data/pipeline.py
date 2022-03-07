@@ -319,8 +319,8 @@ class DataPipeline:
         'sto', self.use_precomputed_msas)
 
     msa_for_templates = jackhmmer_uniref90_result['sto']
-    msa_for_templates = parsers.truncate_stockholm_msa(
-        msa_for_templates, max_sequences=self.uniref_max_hits)
+    #msa_for_templates = parsers.truncate_stockholm_msa(
+    #    msa_for_templates, max_sequences=self.uniref_max_hits)
     msa_for_templates = parsers.deduplicate_stockholm_msa(
         msa_for_templates)
     msa_for_templates = parsers.remove_empty_columns_from_stockholm_msa(
