@@ -140,6 +140,7 @@ flags.DEFINE_list("model_names", None, "Model configs to be run")
 flags.DEFINE_string("pdb_init", None, "Initial conformation in PDB format")
 flags.DEFINE_string("pdb_final", None, "Final conformation in PDB format")
 flags.DEFINE_integer("n_frame", 21, "The number of frames")
+flags.DEFINE_boolean("unk_pdb", False, "Make input PDB residue names UNK")
 
 flags.DEFINE_list("msa_path", None, "User input MSA")
 flags.DEFINE_string("custom_templates", None, "User input templates")
@@ -457,18 +458,20 @@ def main(argv):
 
     # Input Conformation
     conformation_info_extractor = templates.ConformationInfoExactractor(
-            kalign_binary_path=FLAGS.kalign_binary_path)
+                kalign_binary_path=FLAGS.kalign_binary_path, unk_pdb=FLAGS.unk_pdb)
     #
+    selection = " or ".join([f"name {a}" for a in ['N','CA','C','O','CB']])
     conf0 = mdtraj.load(FLAGS.pdb_init)
     conf1 = mdtraj.load(FLAGS.pdb_final)
-    conf1.superpose(conf0)
+    conf0 = conf0.atom_slice(conf0.top.select(selection))
+    conf1 = conf1.atom_slice(conf1.top.select(selection))
+    confs = mdtraj.join([conf0, conf1])
+    confs.superpose(confs[0])
+    #
     degree = np.linspace(0, 1, FLAGS.n_frame)
-    xyz = (conf1.xyz[0] - conf0.xyz[0])[None,:] * degree[:,None,None]
-    xyz += conf0.xyz[0]
-    traj = mdtraj.Trajectory(xyz, conf0.top)
-    selection = traj.top.select(\
-            " and ".join([f"name {a}" for a in ['N','CA','C','O','CB']]))
-    traj = traj.atom_slice(selection)
+    xyz = (confs.xyz[1] - confs.xyz[0])[None,:] * degree[:,None,None]
+    xyz += confs.xyz[0]
+    traj = mdtraj.Trajectory(xyz, confs.top)
 
     # PIPELINE
     monomer_data_pipeline = pipeline.DataPipeline(

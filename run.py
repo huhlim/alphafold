@@ -136,6 +136,7 @@ flags.DEFINE_integer("max_extra_msa", None, 'Number of extra sequences')
 flags.DEFINE_list("model_names", None, "Model configs to be run")
 flags.DEFINE_list("msa_path", None, "User input MSA")
 flags.DEFINE_list("pdb_path", None, "User input structure")
+flags.DEFINE_boolean("unk_pdb", False, "Make input PDB residue names UNK")
 flags.DEFINE_string("custom_templates", None, "User input templates")
 flags.DEFINE_integer("num_recycle", 3, "The number of recycling")
 flags.DEFINE_boolean("multimer", False, "Whether to use the multimer modeling hack")
@@ -450,7 +451,7 @@ def main(argv):
         conformation_info_extractor = None
     else:
         conformation_info_extractor = templates.ConformationInfoExactractor(
-                kalign_binary_path=FLAGS.kalign_binary_path)
+                kalign_binary_path=FLAGS.kalign_binary_path, unk_pdb=FLAGS.unk_pdb)
 
     # PIPELINE
     monomer_data_pipeline = pipeline.DataPipeline(

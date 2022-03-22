@@ -1053,8 +1053,9 @@ def make_null_template_features(query_sequence):
   return template_features
 
 class ConformationInfoExactractor():
-    def __init__(self, kalign_binary_path: str):
+    def __init__(self, kalign_binary_path: str, unk_pdb=False):
         self._kalign_binary_path = kalign_binary_path
+        self.unk_pdb = unk_pdb
     def extract(self, query_sequence: str, pdb_fn: str) -> Dict[str, Any]:
         # read PDB file -> atom_positions, atom_mask, and aatype
         with open(pdb_fn) as fp:
@@ -1103,7 +1104,10 @@ class ConformationInfoExactractor():
         for k, v in query_to_template_mapping.items():
             atom_positions[k] = prot.atom_positions[v]
             atom_mask[k] = prot.atom_mask[v]
-            output_sequence[k] = template_sequence[v]
+            if self.unk_pdb:
+                output_sequence[k] = 'X'
+            else:
+                output_sequence[k] = template_sequence[v]
         #
         output_sequence = ''.join(output_sequence)
         template_aatype = residue_constants.sequence_to_onehot(
