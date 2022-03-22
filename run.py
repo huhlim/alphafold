@@ -50,12 +50,6 @@ from libaf import *
 flags.DEFINE_string(
     'fasta_path', None, 'Paths to a FASTA file, If the FASTA file contains '
     'multiple sequences, then it will be folded as a multimer. ')
-flags.DEFINE_boolean(
-    'is_prokaryote', None,
-    'Optional for multimer system, not used by the single chain system. '
-    'specifying true where the target complex is from a prokaryote, and false '
-    'where it is not, or where the origin is unknown. These values determine '
-    'the pairing method for the MSA.')
 
 flags.DEFINE_string('data_dir', libconfig_af.data_dir, 
         'Path to directory of supporting data.')
@@ -118,6 +112,11 @@ flags.DEFINE_integer('random_seed', None, 'The random seed for the data '
                      'that even if this is set, Alphafold may still not be '
                      'deterministic, because processes like GPU inference are '
                      'nondeterministic.')
+flags.DEFINE_integer('num_multimer_predictions_per_model', 5, 'How many '
+                     'predictions (each with a different random seed) will be '
+                     'generated per model. E.g. if this is 2 and there are 5 '
+                     'models then there will be 10 predictions per input. '
+                     'Note: this FLAG only applies if model_preset=multimer')
 flags.DEFINE_boolean('use_precomputed_msas', True, 'Whether to read MSAs that '
                      'have been written to disk. WARNING: This will not check '
                      'if the sequence, database or configuration have changed.')
@@ -180,7 +179,7 @@ def predict_structure(
     remove_msa_for_template_aligned: bool,
     feature_only: bool,
     random_seed: int,
-    is_prokaryote: Optional[bool] = None):
+    ):
     """Predicts structure using AlphaFold for the given sequence."""
 
     logging.info('Predicting %s', fasta_name)
@@ -200,19 +199,11 @@ def predict_structure(
         with open(features_output_path, 'rb') as f:
             feature_dict = pickle.load(f)
     else:
-        if is_prokaryote is None:
-            feature_dict = data_pipeline.process(
-                input_fasta_path=fasta_path,
-                input_msa_path=msa_path,
-                input_pdb_path=pdb_path,
-                msa_output_dir=msa_output_dir)
-        else:
-            feature_dict = data_pipeline.process(
-                input_fasta_path=fasta_path,
-                input_msa_path=msa_path,
-                input_pdb_path=pdb_path,
-                msa_output_dir=msa_output_dir,
-                is_prokaryote=is_prokaryote)
+        feature_dict = data_pipeline.process(
+            input_fasta_path=fasta_path,
+            input_msa_path=msa_path,
+            input_pdb_path=pdb_path,
+            msa_output_dir=msa_output_dir)
 
         # Write out features as a pickled dictionary.
         with open(features_output_path, 'wb') as f:
@@ -423,10 +414,6 @@ def main(argv):
 
     # PREPARE for running prediction
     fasta_name = pathlib.Path(FLAGS.fasta_path).stem
-    if run_multimer_system:
-        is_prokaryote = FLAGS.is_prokaryote
-    else:
-        is_prokaryote = None
 
     # TEMPLATEs
     if FLAGS.use_templates:
@@ -484,6 +471,7 @@ def main(argv):
         is_multimer=FLAGS.multimer, 
         n_cpu=FLAGS.cpu)
     if run_multimer_system:
+        num_predictions_per_model = FLAGS.num_multimer_predictions_per_model
         data_pipeline = pipeline_multimer.DataPipeline(
             monomer_data_pipeline=monomer_data_pipeline,
             jackhmmer_binary_path=FLAGS.jackhmmer_binary_path,
@@ -491,6 +479,7 @@ def main(argv):
             use_precomputed_msas=FLAGS.use_precomputed_msas,
             n_cpu=FLAGS.cpu)
     else:
+        num_predictions_per_model = 1
         data_pipeline = monomer_data_pipeline
 
     #
@@ -522,7 +511,8 @@ def main(argv):
                 model_name=model_name, data_dir=FLAGS.data_dir)
         model_runner = model.RunModel(model_config, model_params, 
                 jit_compile=FLAGS.jit)
-        model_runners[model_name] = model_runner
+        for i in range(num_predictions_per_model):
+            model_runners[f'{model_name}_pred_{i}'] = model_runner
 
     logging.info('Have %d models: %s', \
             len(model_runners), list(model_runners.keys()))
@@ -558,7 +548,6 @@ def main(argv):
             remove_msa_for_template_aligned=FLAGS.remove_msa_for_template_aligned,
             feature_only=FLAGS.feature_only,
             random_seed=random_seed,
-            is_prokaryote=is_prokaryote,
             )
 
 if __name__ == '__main__':
