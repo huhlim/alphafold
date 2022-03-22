@@ -146,6 +146,11 @@ flags.DEFINE_boolean("use_gpu_relax", False, 'Whether to relax on GPU.'
         'recommended to enable if possible. GPUs must be available'
         ' if this setting is enabled.')
 
+# presets
+flags.DEFINE_boolean("preset_refine", False, "Running refinement mode."
+        'same as "--use_templates=False --use_msa=False --model_names=0 --unk_pdb=True'
+        'requires --pdb_path')
+
 FLAGS = flags.FLAGS
 
 MAX_TEMPLATE_HITS = 20
@@ -341,6 +346,14 @@ def main(argv):
         if not FLAGS[f'{tool_name}_binary_path'].value:
             raise ValueError(f'Could not find path to the "{tool_name}" binary. '
                              'Make sure it is installed on your system.')
+    #
+    if FLAGS.preset_refine:
+        FLAGS.use_templates = False
+        FLAGS.use_msa = False
+        FLAGS.model_names = [0]
+        FLAGS.unk_pdb = True
+        if FLAGS.pdb_path is None:
+            raise ValueError("--pdb_path is required for the refine preset")
     #
     use_small_bfd = FLAGS.db_preset == 'reduced_dbs'
     if use_small_bfd:

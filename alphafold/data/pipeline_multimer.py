@@ -236,7 +236,6 @@ class DataPipeline:
     msa = msa.truncate(max_seqs=self._max_uniprot_hits)
     all_seq_features = pipeline.make_msa_features([msa])
     valid_feats = msa_pairing.MSA_FEATURES + (
-        'msa_uniprot_accession_identifiers',
         'msa_species_identifiers',
     )
     feats = {f'{k}_all_seq': v for k, v in all_seq_features.items()
@@ -247,8 +246,7 @@ class DataPipeline:
               input_fasta_path: str,
               input_msa_path: List[str],
               input_pdb_path: List[str],
-              msa_output_dir: str,
-              is_prokaryote: bool = False) -> pipeline.FeatureDict:
+              msa_output_dir: str) -> pipeline.FeatureDict:
     """Runs alignment tools on the input sequences and creates features."""
     with open(input_fasta_path) as f:
       input_fasta_str = f.read()
@@ -291,9 +289,7 @@ class DataPipeline:
     all_chain_features = add_assembly_features(all_chain_features)
 
     np_example = feature_processing.pair_and_merge(
-        all_chain_features=all_chain_features,
-        is_prokaryote=is_prokaryote,
-    )
+        all_chain_features=all_chain_features)
 
     # Pad MSA to avoid zero-sized extra_msa.
     np_example = pad_msa(np_example, 512)
