@@ -52,12 +52,6 @@ from libaf import *
 flags.DEFINE_string(
     'fasta_path', None, 'Paths to a FASTA file, If the FASTA file contains '
     'multiple sequences, then it will be folded as a multimer. ')
-flags.DEFINE_boolean(
-    'is_prokaryote', None,
-    'Optional for multimer system, not used by the single chain system. '
-    'specifying true where the target complex is from a prokaryote, and false '
-    'where it is not, or where the origin is unknown. These values determine '
-    'the pairing method for the MSA.')
 
 flags.DEFINE_string('data_dir', libconfig_af.data_dir, 
         'Path to directory of supporting data.')
@@ -137,9 +131,9 @@ flags.DEFINE_integer("max_msa_clusters", None, 'Number of maximum MSA clusters')
 flags.DEFINE_integer("max_extra_msa", None, 'Number of extra sequences')
 flags.DEFINE_list("model_names", None, "Model configs to be run")
 
-flags.DEFINE_string("pdb_init", None, "Initial conformation in PDB format")
-flags.DEFINE_string("pdb_final", None, "Final conformation in PDB format")
+flags.DEFINE_list("pdb_init", None, "Initial conformations in PDB format")
 flags.DEFINE_integer("n_frame", 21, "The number of frames")
+flags.DEFINE_list("interpolate_region", None, "interested residues for path sampling.")
 flags.DEFINE_boolean("unk_pdb", False, "Make input PDB residue names UNK")
 
 flags.DEFINE_list("msa_path", None, "User input MSA")
@@ -193,20 +187,17 @@ def interpolat_structure(
     fasta_name: str,
     msa_path: Union[str, List[str]],
     traj: mdtraj.Trajectory, 
-    output_dir_base: str,
+    output_dir: str,
     data_pipeline: Union[pipeline.DataPipeline, pipeline_multimer.DataPipeline],
     model_runners: Dict[str, model.RunModel],
     amber_relaxer: relax.AmberRelaxation,
     remove_msa_for_template_aligned: bool,
     random_seed: int,
-    is_prokaryote: Optional[bool] = None):
+    ):
     """Predicts structure using AlphaFold for the given sequence."""
 
     logging.info('Predicting %s', fasta_name)
     timings = {}
-    output_dir = os.path.join(output_dir_base, fasta_name)
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
     msa_output_dir = os.path.join(output_dir, 'msas')
     if not os.path.exists(msa_output_dir):
         os.makedirs(msa_output_dir)
@@ -220,19 +211,11 @@ def interpolat_structure(
         # Get features.
         # modified to re-use features.pkl file, if it exists.
         t_0 = time.time()
-        if is_prokaryote is None:
-            feature_dict = data_pipeline.process(
-                input_fasta_path=fasta_path,
-                input_msa_path=msa_path,
-                input_pdb_path=pdb_path,
-                msa_output_dir=msa_output_dir)
-        else:
-            feature_dict = data_pipeline.process(
-                input_fasta_path=fasta_path,
-                input_msa_path=msa_path,
-                input_pdb_path=pdb_path,
-                msa_output_dir=msa_output_dir,
-                is_prokaryote=is_prokaryote)
+        feature_dict = data_pipeline.process(
+            input_fasta_path=fasta_path,
+            input_msa_path=msa_path,
+            input_pdb_path=pdb_path,
+            msa_output_dir=msa_output_dir)
 
         # apply the "remove_msa_for_template_aligned_regions" protocol
         if remove_msa_for_template_aligned:
@@ -349,6 +332,90 @@ def interpolat_structure(
         with open(timings_output_path, 'w') as f:
             f.write(json.dumps(timings, indent=4))
 
+def define_pdb_path(pdb_init, n_frame, interpolate_region):
+    sys.stdout.write("INFO: defining interpolation path.\n")
+    selection = " or ".join([f"name {a}" for a in ['N','CA','C','O','CB']])
+    pdb_s = [mdtraj.load(pdb_fn) for pdb_fn in pdb_init]
+    pdb_s = [conf.atom_slice(conf.top.select(selection)) for conf in pdb_s]
+    pdb_s = mdtraj.join(pdb_s)
+    #
+    if interpolate_region is None:
+        atom_indices = pdb_s.top.select("all")
+    else:
+        interested_residues = []
+        for X in interpolate_region:
+            if '-' in X:
+                X = X.split("-")
+                interested_residues.extend(list(range(int(X[0]), int(X[1])+1)))
+            else:
+                interested_residues.append(int(X))
+        atom_indices = np.array([a.index for a in pdb_s.top.atoms if a.residue.resSeq in interested_residues], dtype=int)
+    #
+    min_rmsd = mdtraj.rmsd(pdb_s[-1], pdb_s[0], atom_indices=atom_indices)[0] * 10. / n_frame
+    sys.stdout.write(f"INFO: RMSD cutoff = {min_rmsd:8.3f}\n")
+    #
+    selected = np.zeros(len(pdb_s), dtype=bool)
+    selected[0] = True
+    selected[-1] = True
+    prev = 0 ; next = len(selected)-1
+    for i in range(1, len(pdb_s)-1):
+        rmsd_to_first = mdtraj.rmsd(pdb_s[i], pdb_s[0], atom_indices=atom_indices)[0] * 10.
+        rmsd_to_last  = mdtraj.rmsd(pdb_s[i], pdb_s[-1], atom_indices=atom_indices)[0] * 10.
+        #
+        sys.stdout.write(f"INFO: assessing ... {pdb_init[i]}\n")
+        sys.stdout.write(f"INFO: RMSD to the first = {rmsd_to_first:8.3f}\n")
+        sys.stdout.write(f"INFO: RMSD to the last  = {rmsd_to_last:8.3f}\n")
+        #
+        if rmsd_to_first < rmsd_to_last:
+            j = prev
+        else:
+            j = next
+        rmsd = mdtraj.rmsd(pdb_s[i], pdb_s[j], atom_indices=atom_indices)[0] * 10.
+        sys.stdout.write(f"INFO: RMSD to the neighbor {pdb_init[j]} = {rmsd:8.3f}\n")
+        if rmsd > min_rmsd:
+            selected[i] = True
+            if rmsd_to_first < rmsd_to_last:
+                prev = i
+            else:
+                next = i
+            sys.stdout.write(f"INFO: SELECTED {pdb_init[i]}\n")
+        else:
+            sys.stdout.write(f"INFO: SKIPPED {pdb_init[i]}\n")
+    selected_pdb_init = [pdb_fn for i,pdb_fn in enumerate(pdb_init) if selected[i]]
+    #
+    traj = [pdb_s[i] for i,s in enumerate(selected) if s]
+    n_selected = len(traj)
+    for i in range(1, n_selected):
+        traj[i].superpose(traj[i-1], atom_indices=atom_indices)
+    if n_selected > n_frame:
+        raise ValueError(f"n_selected {n_selected} initial pdb structures exceeded n_frame {n_frame}")
+    elif n_selected == n_frame:
+        out = mdtraj.join(traj)
+        return out
+    else:
+        rmsd_btw = np.array([mdtraj.rmsd(traj[i], traj[i+1], atom_indices=atom_indices)[0] * 10. \
+                for i in range(n_selected-1)])
+        interp = np.random.choice(np.arange(n_selected-1, dtype=int), \
+                size=(n_frame-n_selected), p=(rmsd_btw / rmsd_btw.sum()))
+        n_interp = np.zeros(n_selected-1, dtype=int)
+        np.add.at(n_interp, interp, 1)
+        #
+        xyz_s = []
+        for i in range(n_selected-1):
+            if n_interp[i] == 0:
+                xyz_s.append(traj[i].xyz)
+                continue
+            #
+            sys.stdout.write(f"INFO: interpolating between {selected_pdb_init[i]} and {selected_pdb_init[i+1]} with {n_interp[i]:d} points\n")
+            degree = np.linspace(0, 1, n_interp[i]+2)
+            xyz = (traj[i+1].xyz[0] - traj[i].xyz[0])[None,:] * degree[:-1,None,None]
+            xyz += traj[i].xyz[0]
+            xyz_s.append(xyz)
+        xyz_s.append(traj[-1].xyz)
+        xyz_s = np.concatenate(xyz_s)
+        out = mdtraj.Trajectory(xyz_s, traj[0].top)
+        return out
+
 def main(argv):
     if len(argv) > 1:
         raise app.UsageError('Too many command-line arguments.')
@@ -420,10 +487,9 @@ def main(argv):
 
     # PREPARE for running prediction
     fasta_name = pathlib.Path(FLAGS.fasta_path).stem
-    if run_multimer_system:
-        is_prokaryote = FLAGS.is_prokaryote
-    else:
-        is_prokaryote = None
+    output_dir = os.path.join(FLAGS.output_dir, fasta_name)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
     # TEMPLATEs
     if FLAGS.use_templates:
@@ -460,18 +526,12 @@ def main(argv):
     conformation_info_extractor = templates.ConformationInfoExactractor(
                 kalign_binary_path=FLAGS.kalign_binary_path, unk_pdb=FLAGS.unk_pdb)
     #
-    selection = " or ".join([f"name {a}" for a in ['N','CA','C','O','CB']])
-    conf0 = mdtraj.load(FLAGS.pdb_init)
-    conf1 = mdtraj.load(FLAGS.pdb_final)
-    conf0 = conf0.atom_slice(conf0.top.select(selection))
-    conf1 = conf1.atom_slice(conf1.top.select(selection))
-    confs = mdtraj.join([conf0, conf1])
-    confs.superpose(confs[0])
-    #
-    degree = np.linspace(0, 1, FLAGS.n_frame)
-    xyz = (confs.xyz[1] - confs.xyz[0])[None,:] * degree[:,None,None]
-    xyz += confs.xyz[0]
-    traj = mdtraj.Trajectory(xyz, confs.top)
+    pdb_init_fn = os.path.join(output_dir, 'pdb_init.pdb')
+    if not os.path.exists(pdb_init_fn):
+        traj = define_pdb_path(FLAGS.pdb_init, FLAGS.n_frame, FLAGS.interpolate_region)
+        traj.save(pdb_init_fn)
+    else:
+        traj = mdtraj.load(pdb_init_fn)
 
     # PIPELINE
     monomer_data_pipeline = pipeline.DataPipeline(
@@ -558,19 +618,18 @@ def main(argv):
             fasta_name=fasta_name,
             msa_path=msa_path,
             traj=traj,
-            output_dir_base=FLAGS.output_dir,
+            output_dir=output_dir, 
             data_pipeline=data_pipeline,
             model_runners=model_runners,
             amber_relaxer=amber_relaxer,
             remove_msa_for_template_aligned=FLAGS.remove_msa_for_template_aligned,
             random_seed=random_seed,
-            is_prokaryote=is_prokaryote,
             )
 
 if __name__ == '__main__':
     flags.mark_flags_as_required([
         'fasta_path',
-        'pdb_init', 'pdb_final'
+        'pdb_init',
     ])
 
     app.run(main)

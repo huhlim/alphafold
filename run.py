@@ -128,6 +128,7 @@ flags.DEFINE_float("max_sequence_identity", -1., "Maximum sequence identity for 
 flags.DEFINE_boolean("use_relax", True, "Whether to use AMBER local energy minimization")
 flags.DEFINE_boolean("use_templates", True, "Whether to use PDB database")
 flags.DEFINE_boolean("use_msa", True, "Whether to use MSA")
+flags.DEFINE_list("template_mask", None, "Template masks. (e.g., 1-10,20-30)")
 flags.DEFINE_boolean("remove_msa_for_template_aligned", False, \
                     'Remove MSA information for template aligned region')
 flags.DEFINE_integer("max_msa_clusters", None, 'Number of maximum MSA clusters')
@@ -177,6 +178,7 @@ def predict_structure(
     model_runners: Dict[str, model.RunModel],
     amber_relaxer: relax.AmberRelaxation,
     remove_msa_for_template_aligned: bool,
+    template_mask: List[str],
     feature_only: bool,
     random_seed: int,
     ):
@@ -210,6 +212,8 @@ def predict_structure(
             pickle.dump(feature_dict, f, protocol=4)
 
     # apply the "remove_msa_for_template_aligned_regions" protocol
+    if template_mask is not None:
+        feature_dict = apply_template_mask(feature_dict, template_mask)
     if remove_msa_for_template_aligned:
         feature_dict = remove_msa_for_template_aligned_regions(feature_dict)
 
@@ -546,6 +550,7 @@ def main(argv):
             model_runners=model_runners,
             amber_relaxer=amber_relaxer,
             remove_msa_for_template_aligned=FLAGS.remove_msa_for_template_aligned,
+            template_mask=FLAGS.template_mask, 
             feature_only=FLAGS.feature_only,
             random_seed=random_seed,
             )
