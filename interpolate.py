@@ -129,10 +129,11 @@ flags.DEFINE_boolean("remove_msa_for_template_aligned", False, \
                     'Remove MSA information for template aligned region')
 flags.DEFINE_integer("max_msa_clusters", None, 'Number of maximum MSA clusters')
 flags.DEFINE_integer("max_extra_msa", None, 'Number of extra sequences')
-flags.DEFINE_list("model_names", None, "Model configs to be run")
+flags.DEFINE_list("model_names", ['0'], "Model configs to be run")
 
 flags.DEFINE_list("pdb_init", None, "Initial conformations in PDB format")
 flags.DEFINE_integer("n_frame", 21, "The number of frames")
+flags.DEFINE_list("frames", None, "Frames selected")
 flags.DEFINE_list("interpolate_region", None, "interested residues for path sampling.")
 flags.DEFINE_boolean("unk_pdb", False, "Make input PDB residue names UNK")
 
@@ -182,11 +183,12 @@ def retrieve_custom_features(processed_feature_dict, feature_dict):
         if name in feature_dict:
             processed_feature_dict[name] = feature_dict[name]
 
-def interpolat_structure(
+def interpolate_structure(
     fasta_path: str,
     fasta_name: str,
     msa_path: Union[str, List[str]],
     traj: mdtraj.Trajectory, 
+    frames_selected: List[int],
     output_dir: str,
     data_pipeline: Union[pipeline.DataPipeline, pipeline_multimer.DataPipeline],
     model_runners: Dict[str, model.RunModel],
@@ -204,6 +206,9 @@ def interpolat_structure(
     #
     n_frame = len(traj)
     for i_frame in range(n_frame):
+        if i_frame not in frames_selected:
+            continue
+        #
         pdb = tempfile.NamedTemporaryFile("wt", suffix='.pdb')
         pdb_path = pdb.name
         traj[i_frame].save(pdb_path)
@@ -532,6 +537,10 @@ def main(argv):
         traj.save(pdb_init_fn)
     else:
         traj = mdtraj.load(pdb_init_fn)
+    if FLAGS.frames is None:
+        frames_selected = [i for i in range(len(traj))]
+    else:
+        frames_selected = [int(i) for i in FLAGS.frames]
 
     # PIPELINE
     monomer_data_pipeline = pipeline.DataPipeline(
@@ -613,11 +622,12 @@ def main(argv):
     logging.info('Using random seed %d for the data pipeline', random_seed)
  
     # RUN PREDICTION
-    interpolat_structure(
+    interpolate_structure(
             fasta_path=FLAGS.fasta_path,
             fasta_name=fasta_name,
             msa_path=msa_path,
             traj=traj,
+            frames_selected=frames_selected,
             output_dir=output_dir, 
             data_pipeline=data_pipeline,
             model_runners=model_runners,
