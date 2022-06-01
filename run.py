@@ -536,7 +536,7 @@ def main(argv):
     # RANDOMSEED
     random_seed = FLAGS.random_seed
     if random_seed is None:
-        random_seed = random.randrange((sys.maxsize) // len(model_names))
+        random_seed = random.randrange((sys.maxsize) // len(model_runners))
     logging.info('Using random seed %d for the data pipeline', random_seed)
  
     # RUN PREDICTION
