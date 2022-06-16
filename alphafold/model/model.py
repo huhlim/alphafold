@@ -207,15 +207,15 @@ class RunModel:
         sub_feat["prev"] = result["prev"]
         result, _ = self.apply(self.params, key, sub_feat)
         confidences = get_confidence_metrics(result, multimer_mode=self.multimer_mode)
-        if self.config.model.stop_at_score_ranker == "plddt":
-          mean_score = (confidences["plddt"] * feat["seq_mask"]).sum() / feat["seq_mask"].sum()
-        else:
-          mean_score = confidences["ptm"].mean()
         result.update(confidences)
+        # if self.config.model.stop_at_score_ranker == "plddt":
+        #   mean_score = (confidences["plddt"] * feat["seq_mask"]).sum() / feat["seq_mask"].sum()
+        # else:
+        #   mean_score = confidences["ptm"].mean()
         r += 1
-        if mean_score > self.config.model.stop_at_score:
-            break
+        # if mean_score > self.config.model.stop_at_score:
+        #     break
 
     logging.info('Output shape was %s', tree.map_structure(lambda x: x.shape, result))
-    return result, (r-1)
+    return result
 
