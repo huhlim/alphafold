@@ -157,6 +157,7 @@ class AlphaFoldIteration(hk.Module):
     # Compute representations for each batch element and average.
     evoformer_module = EmbeddingsAndEvoformer(
         self.config.embeddings_and_evoformer, self.global_config)
+
     batch0 = slice_batch(0)
     representations = evoformer_module(batch0, is_training)
 
@@ -311,8 +312,7 @@ class AlphaFold(hk.Module):
 
     def get_prev(ret):
       new_prev = {
-          'prev_pos':
-              ret['structure_module']['final_atom_positions'],
+          'prev_pos': ret['structure_module']['final_atom_positions'],
           'prev_msa_first_row': ret['representations']['msa_first_row'],
           'prev_pair': ret['representations']['pair'],
       }
@@ -322,7 +322,8 @@ class AlphaFold(hk.Module):
                 recycle_idx,
                 compute_loss=compute_loss):
       if self.config.resample_msa_in_recycling:
-        num_ensemble = batch_size // (self.config.num_recycle + 1)
+        # num_ensemble = batch_size // (self.config.num_recycle + 1)
+        num_ensemble = batch_size
         def slice_recycle_idx(x):
           start = recycle_idx * num_ensemble
           size = num_ensemble
@@ -341,53 +342,58 @@ class AlphaFold(hk.Module):
           compute_loss=compute_loss,
           ensemble_representations=ensemble_representations)
 
-    prev = {}
-    emb_config = self.config.embeddings_and_evoformer
-    if emb_config.recycle_pos:
-      prev['prev_pos'] = jnp.zeros(
-          [num_residues, residue_constants.atom_type_num, 3])
-    if emb_config.recycle_features:
-      prev['prev_msa_first_row'] = jnp.zeros(
-          [num_residues, emb_config.msa_channel])
-      prev['prev_pair'] = jnp.zeros(
-          [num_residues, num_residues, emb_config.pair_channel])
+    # prev = {}
+    # emb_config = self.config.embeddings_and_evoformer
+    # if emb_config.recycle_pos:
+    #   prev['prev_pos'] = jnp.zeros(
+    #       [num_residues, residue_constants.atom_type_num, 3])
+    # if emb_config.recycle_features:
+    #   prev['prev_msa_first_row'] = jnp.zeros(
+    #       [num_residues, emb_config.msa_channel])
+    #   prev['prev_pair'] = jnp.zeros(
+    #       [num_residues, num_residues, emb_config.pair_channel])
 
-    if self.config.num_recycle:
-      if 'num_iter_recycling' in batch:
-        # Training time: num_iter_recycling is in batch.
-        # The value for each ensemble batch is the same, so arbitrarily taking
-        # 0-th.
-        num_iter = batch['num_iter_recycling'][0]
+    # if self.config.num_recycle:
+    #   if 'num_iter_recycling' in batch:
+    #     # Training time: num_iter_recycling is in batch.
+    #     # The value for each ensemble batch is the same, so arbitrarily taking
+    #     # 0-th.
+    #     num_iter = batch['num_iter_recycling'][0]
 
-        # Add insurance that we will not run more
-        # recyclings than the model is configured to run.
-        num_iter = jnp.minimum(num_iter, self.config.num_recycle)
-      else:
-        # Eval mode or tests: use the maximum number of iterations.
-        num_iter = self.config.num_recycle
+    #     # Add insurance that we will not run more
+    #     # recyclings than the model is configured to run.
+    #     num_iter = jnp.minimum(num_iter, self.config.num_recycle)
+    #   else:
+    #     # Eval mode or tests: use the maximum number of iterations.
+    #     num_iter = self.config.num_recycle
 
-      body = lambda x: (x[0] + 1,  # pylint: disable=g-long-lambda
-                        get_prev(do_call(x[1], recycle_idx=x[0],
-                                         compute_loss=False)))
-      if hk.running_init():
-        # When initializing the Haiku module, run one iteration of the
-        # while_loop to initialize the Haiku modules used in `body`.
-        _, prev = body((0, prev))
-      else:
-        _, prev = hk.while_loop(
-            lambda x: x[0] < num_iter,
-            body,
-            (0, prev))
-    else:
-      num_iter = 0
+    #   body = lambda x: (x[0] + 1,  # pylint: disable=g-long-lambda
+    #                     get_prev(do_call(x[1], recycle_idx=x[0],
+    #                                      compute_loss=False)))
+    #   if hk.running_init():
+    #     # When initializing the Haiku module, run one iteration of the
+    #     # while_loop to initialize the Haiku modules used in `body`.
+    #     _, prev = body((0, prev))
+    #   else:
+    #     _, prev = hk.while_loop(
+    #         lambda x: x[0] < num_iter,
+    #         body,
+    #         (0, prev))
+    # else:
+    #   num_iter = 0
 
-    ret = do_call(prev=prev, recycle_idx=num_iter)
+    # ret = do_call(prev=prev, recycle_idx=num_iter)
+    emb_config = self.config.embeddings_and_evoformer    
+    ret = do_call(prev=batch.pop("prev"), recycle_idx=0)
+    ret["prev"] = get_prev(ret)
+    
     if compute_loss:
       ret = ret[0], [ret[1]]
 
     if not return_representations:
       del (ret[0] if compute_loss else ret)['representations']  # pytype: disable=unsupported-operands
-    return ret
+
+    return ret, None
 
 
 class TemplatePairStack(hk.Module):
