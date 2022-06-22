@@ -190,7 +190,10 @@ class RunModel:
       num_recycles = self.config.model.num_recycle + 1
       L = aatype.shape[0]
     else:
-      num_recycles, L = aatype.shape[:2]
+      #num_recycles, L = aatype.shape[:2]
+      num_recycles = self.config.model.num_recycle + 1
+      num_ensemble = self.config.data.eval.num_ensemble
+      L = aatype.shape[1]
     
     result = {"prev":{'prev_msa_first_row': np.zeros([L,256]),
                       'prev_pair': np.zeros([L,L,128]),
@@ -203,7 +206,10 @@ class RunModel:
             sub_feat = feat
             sub_feat["iter"] = np.array(r)
         else:
-            sub_feat = jax.tree_map(lambda x:x[r,None], feat)
+            s = r * num_ensemble
+            e = (r+1) * num_ensemble
+            sub_feat = jax.tree_map(lambda x:x[s:e], feat)
+            #sub_feat = jax.tree_map(lambda x:x[r,None], feat)
         sub_feat["prev"] = result["prev"]
         result, _ = self.apply(self.params, key, sub_feat)
         confidences = get_confidence_metrics(result, multimer_mode=self.multimer_mode)
