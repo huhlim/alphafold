@@ -135,7 +135,7 @@ class DataPipeline:
                uniref90_database_path: str,
                mgnify_database_path: str,
                bfd_database_path: Optional[str],
-               uniclust30_database_path: Optional[str],
+               uniref30_database_path: Optional[str],
                small_bfd_database_path: Optional[str],
                template_searcher: TemplateSearcher,
                template_featurizer: templates.TemplateHitFeaturizer,
@@ -158,13 +158,13 @@ class DataPipeline:
         binary_path=jackhmmer_binary_path,
         database_path=uniref90_database_path, n_cpu=n_cpu)
     if use_small_bfd:
-      self.jackhmmer_small_bfd_runner = jackhmmer.Jackhmmer(
-          binary_path=jackhmmer_binary_path,
-          database_path=small_bfd_database_path, n_cpu=n_cpu)
+        self.jackhmmer_small_bfd_runner = jackhmmer.Jackhmmer(
+            binary_path=jackhmmer_binary_path,
+            database_path=small_bfd_database_path, n_cpu=n_cpu)
     else:
-      self.hhblits_bfd_uniclust_runner = hhblits.HHBlits(
-          binary_path=hhblits_binary_path,
-          databases=[bfd_database_path, uniclust30_database_path], n_cpu=n_cpu)
+        self.hhblits_bfd_uniref_runner = hhblits.HHBlits(
+            binary_path=hhblits_binary_path,
+            databases=[bfd_database_path, uniref30_database_path], n_cpu=n_cpu)
     self.jackhmmer_mgnify_runner = jackhmmer.Jackhmmer(
         binary_path=jackhmmer_binary_path,
         database_path=mgnify_database_path, n_cpu=n_cpu)
@@ -283,14 +283,14 @@ class DataPipeline:
           use_precomputed_msas=self.use_precomputed_msas)
       bfd_msa = parsers.parse_stockholm(jackhmmer_small_bfd_result['sto'])
     else:
-      bfd_out_path = os.path.join(msa_output_dir, 'bfd_uniclust_hits.a3m')
-      hhblits_bfd_uniclust_result = run_msa_tool(
-          msa_runner=self.hhblits_bfd_uniclust_runner,
+      bfd_out_path = os.path.join(msa_output_dir, 'bfd_uniref_hits.a3m')
+      hhblits_bfd_uniref_result = run_msa_tool(
+          msa_runner=self.hhblits_bfd_uniref_runner,
           input_fasta_path=input_fasta_path,
           msa_out_path=bfd_out_path,
           msa_format='a3m',
           use_precomputed_msas=self.use_precomputed_msas)
-      bfd_msa = parsers.parse_a3m(hhblits_bfd_uniclust_result['a3m'])
+      bfd_msa = parsers.parse_a3m(hhblits_bfd_uniref_result['a3m'])
 
     msa_features = make_msa_features((uniref90_msa, bfd_msa, mgnify_msa))
 

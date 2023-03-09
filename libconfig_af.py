@@ -25,9 +25,8 @@ small_bfd_database_path = os.path.join(
     data_dir, "small_bfd", "bfd-first_non_consensus_sequences.fasta"
 )
 
-# Path to the Uniclust30 database for use by HHblits.
-uniclust30_database_path = os.path.join(data_dir, "uniclust30", "uc30")
-# data_dir, 'uniclust30', 'uniclust30_2018_08', 'uniclust30_2018_08')
+# Path to the UniRef30 database for use by HHblits.
+uniref30_database_path = os.path.join(data_dir, "uniclust30", "uc30")
 
 # Path to the UniProt database for used by JackHMMer.
 uniprot_database_path = os.path.join(data_dir, "uniprot", "uniprot.fasta")
