@@ -12,7 +12,7 @@ def apply_template_mask(feature_dict, residues):
                 mask[r-1] = True
         else:
             mask[int(residue_range)] = True
-    mask = ~mask
+    #mask = ~mask
     logging.info("Applying template mask %s", residues)
     #
     feature_dict['template_aatype'][:,mask] = 0.
