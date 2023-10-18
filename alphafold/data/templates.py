@@ -228,9 +228,9 @@ def _assess_hhsearch_hit(
     raise AlignRatioError('Proportion of residues aligned to query too small. '
                           f'Align ratio: {align_ratio}.')
 
-  if duplicate:
-    raise DuplicateError('Template is an exact subsequence of query with large '
-                         f'coverage. Length ratio: {length_ratio}.')
+  # if duplicate:
+  #   raise DuplicateError('Template is an exact subsequence of query with large '
+  #                        f'coverage. Length ratio: {length_ratio}.')
 
   if len(template_sequence) < 10:
     raise LengthError(f'Template too short. Length: {len(template_sequence)}.')

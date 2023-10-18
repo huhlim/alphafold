@@ -162,8 +162,8 @@ flags.DEFINE_integer(
     "nondeterministic.",
 )
 flags.DEFINE_integer(
-    "num_multimer_predictions_per_model",
-    5,
+    "num_predictions_per_model",
+    1,
     "How many "
     "predictions (each with a different random seed) will be "
     "generated per model. E.g. if this is 2 and there are 5 "
@@ -308,6 +308,7 @@ def predict_structure(
         result_output_path = os.path.join(output_dir, f"result_{model_name}.pkl")
         if os.path.exists(final_output_path) and os.path.exists(result_output_path):
             # skip running this model and re-use pre-existing results.
+            logging.info("Skipping %s", relaxed_output_path)
             with open(result_output_path, "rb") as fp:
                 prediction_result = pickle.load(fp)
                 ranking_confidences[model_name] = prediction_result["ranking_confidence"]
@@ -549,8 +550,8 @@ def main(argv):
         is_multimer=FLAGS.multimer,
         n_cpu=FLAGS.cpu,
     )
+    num_predictions_per_model = FLAGS.num_predictions_per_model
     if run_multimer_system:
-        num_predictions_per_model = FLAGS.num_multimer_predictions_per_model
         data_pipeline = pipeline_multimer.DataPipeline(
             monomer_data_pipeline=monomer_data_pipeline,
             jackhmmer_binary_path=FLAGS.jackhmmer_binary_path,
@@ -559,9 +560,7 @@ def main(argv):
             n_cpu=FLAGS.cpu,
         )
     else:
-        num_predictions_per_model = 1
         data_pipeline = monomer_data_pipeline
-
     #
     if FLAGS.model_names is None:
         FLAGS.model_names = [0, 1, 2, 3, 4]
